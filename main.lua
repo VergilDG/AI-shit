@@ -1,3420 +1,1638 @@
-local guiEnabled = false
-local hasOpened = false
-local lstMsgs = {}
-local lstContacts = {}
-local inPhone = false
-local radioChannel = math.random(1,999)
-local usedFingers = false
-local dead = false
-local onhold = false
-local YellowPageArray = {}
-local YellowPages = {}
-local PhoneBooth = GetEntityCoords(PlayerPedId())
-local phoneNotifications = true
-local insideDelivers = false
-local curhrs = 9
-local curmins = 2
-local allowpopups = true
-local vehicles = {}
-local isDead = false
-local wallPaper = ""
-local pPhoneOpen = false
-local unReadMsg = 0
-local unReadTwt = 0
-local unReadEmail = 0
-local serverSpawn = false
-local sanitation = true
-local rentEnabled = false
-local canSpawnVehs = false
-local canSpawnDist = 0
-local vehSpawnPlate = 0
-local spawningVeh = 0
-function pOpen()
-  return pPhoneOpen
-end
-
-function phasPhone()
-  return hasPhone()
-end
-
-function pNotify()
-  return phoneNotifications
-end
-
-CreateThread(function ()
-  while true do
-    Wait(0)
-      if guiEnabled == true then 
-        DisableAllControlActions(0)
-        DisableAllControlActions(2)
-             
-        EnableControlAction(0, 32, true)
-        EnableControlAction(0, 34, true)
-        EnableControlAction(0, 31, true)
-        EnableControlAction(0, 30, true)
-        EnableControlAction(0, 22, true)
-        EnableControlAction(0, 21, true)
-
-        -- car
-        EnableControlAction(0, 71, true)
-        EnableControlAction(0, 72, true)
-        EnableControlAction(0, 59, true)
-
-        -- push to talk
-        EnableControlAction(0, 249, true)
-      end
-    end
-end)
-
-
-RegisterNetEvent('serenity-housing:rent_activate_cl')
-AddEventHandler('serenity-housing:rent_activate_cl', function()
-    local rank = exports['serenity_manager']:GroupRank("real_estate")
-    if not rentEnabled then
-        if rank > 0 then
-            TriggerEvent('DoLongHudText', "Rent is Enabled.")
-        end
-        rentEnabled = true
-        enabledRentSelling()
-    else
-        if rank > 0 then
-            TriggerEvent('DoLongHudText', "Rent is Disabled.",2)
-        end
-        rentEnabled = false
-    end
-end)
-
-AddEventHandler('serenity-phone:sanitationIn', function()
-  -- print("SANITATION SIGN IN")
-  sanitation = true
-end)
-
-RegisterNetEvent("serenity-phone:grabBackground")
-AddEventHandler("serenity-phone:grabBackground", function(link)
-    wallPaper = link
-end)
-
-RegisterNetEvent("serenity-jobmanager:playerBecameJob")
-AddEventHandler("serenity-jobmanager:playerBecameJob", function(job)
-    if job == "trucker" then
-        trucker = true
-    end
-end)
-
-AddEventHandler('addUnreadMsg', function()
-  unReadMsg = unReadMsg + 1
-end)
-
-AddEventHandler('msgReads', function()
-  unReadMsg = 0
-end)
-
-AddEventHandler('addUnreadTwt', function()
-  unReadTwt = unReadTwt + 1
-end)
-
-AddEventHandler('twtReads', function()
-  unReadTwt = 0
-end)
-
-AddEventHandler('addUnreadEmail', function()
-  unReadEmail = unReadEmail + 1
-end)
-
-AddEventHandler('emailReads', function()
-  unReadEmail = 0
-end)
-
-RegisterNUICallback('emailReads', function(data)
-  unReadEmail = 0
-end)
-
-function SetCustomNuiFocus(hasKeyboard, hasMouse)
-  HasNuiFocus = hasKeyboard or hasMouse
-
-  SetNuiFocus(hasKeyboard, hasMouse)
-  SetNuiFocusKeepInput(HasNuiFocus)
-
-  TriggerEvent("np:voice:focus:set", HasNuiFocus, hasKeyboard, hasMouse)
-end
-
-RegisterNUICallback('btnNotifyToggle', function(data, cb)
-    allowpopups = not allowpopups
-    if allowpopups then
-      TriggerEvent("DoLongHudText","Popups Enabled", 1)
-    else
-      TriggerEvent("DoLongHudText","Popups Disabled", 2)
-    end
-end)
-
-RegisterNUICallback('wallpaper', function(data, cb)
-  wallPaper = ""
-  Wait(5)
-  local wallPaperSelecionado = data.wallpaper
-  TriggerEvent('serenity-phone:grabBackground', wallPaperSelecionado)
-  TriggerServerEvent("phone:saveWallpaper", exports['serenity_manager']:isPed('cid'), wallPaperSelecionado)
-end)
-
-activeNumbersClient = {}
-
-RegisterNetEvent('phone:reset')
-AddEventHandler('phone:reset', function(cidsent)
-    closeGui()
-    guiEnabled = false
-    hasOpened = false
-    lstMsgs = {}
-    lstContacts = {}
-    vehicles = {}
-    radioChannel = math.random(1,999)
-    dead = false
-    onhold = false
-    inPhone = false
-    wallPaper = ""
-    Wait(1)
-    TriggerServerEvent('serenity-phone:grabWallpaper')
-end)
-
-RegisterNetEvent('Yougotpaid')
-AddEventHandler('Yougotpaid', function(cidsent)
-    if tonumber(cid) == tonumber(cidsent) then
-      TriggerEvent("DoLongHudText","Life Invader Payslip Generated.", 1)
-    end
-end)
-
-RegisterNetEvent("phone:listunpaid")
-AddEventHandler("phone:listunpaid", function(outstandingArray)
-
-  SendNUIMessage({
-    openSection = "showOutstandingPayments",
-    outstandingPayments = outstandingArray
-  })
-end)
-           
-RegisterNetEvent('Payment:Successful')
-AddEventHandler('Payment:Successful', function()
-    SendNUIMessage({
-        openSection = "error",
-        textmessage = "Payment Processed.",
-    })     
-end)
-
-RegisterNetEvent('warrants:AddInfo')
-AddEventHandler('warrants:AddInfo', function(name, charges)
-
-    openGuiNow()
-
-    SendNUIMessage({
-      openSection = "enableoutstanding",
-    })
-    for i = 1, #charges do
-
-      SendNUIMessage({
-        openSection = "inputoutstanding",
-        textmessage = charges[i],
-      })
-    end
-    
-end)
-
-RegisterNetEvent("phone:activeNumbers")
-AddEventHandler("phone:activeNumbers", function(activePhoneNumbers)
-  activeNumbersClient = activePhoneNumbers
-  hasOpened = false
-end)
-
-
-
-RegisterNetEvent("gangTasks:updateClients")
-AddEventHandler("gangTasks:updateClients", function(newTasks)
-  activeTasks = newTasks
-end)
-
-TaskState = {
-  [1] = "Ready For Pickup",
-  [2] = "In Process",
-  [3] = "Successful",
-  [4] = "Failed",
-  [5] = "Delivered with Damaged Goods",
-}
-
-TaskTitle = {
-  [1] = "Ordering 'Take-Out'",
-  [2] = "Ordering 'Disposal Service'",
-  [3] = "Ordering 'Postal Delivery'",
-  [4] = "Ordering 'Hot Food Room Service'",
-}
-
-function findTaskIdFromBlockChain(blockchain)
-  local retnum = 1
-  for i = 1, #activeTasks do
-    if activeTasks[i]["BlockChain"] == blockchain then
-      retnum = i
-    end
-  end
-  return retnum
-end
-
--- real estate nui app responses
-
-function loading()
-    SendNUIMessage({
-        openSection = "error",
-        textmessage = "Loading, please wait.",
-    })  
-end
-
-RegisterNetEvent("phone:setServerTime")
-AddEventHandler("phone:setServerTime", function(time)
-  SendNUIMessage({
-    openSection = "server-time",
-    serverTime = time
-  })
-end)
-
-RegisterNetEvent("timeheader")
-AddEventHandler("timeheader", function(hrs,mins)
-
-
-  if hrs < 10 then
-    hrs = "0"..hrs
-  end
-  if mins < 10 then
-    mins = "0"..mins
-  end
-  curhrs = hrs
-  curmins = mins
-
-  local timesent = curhrs .. ":" .. curmins
-  if guiEnabled then
-    SendNUIMessage({
-      openSection = "timeheader",
-      timestamp = timesent,
-    })   
-  end
-end)
-
-
-function doTimeUpdate()
-  hour = GetClockHours()
-  minute = GetClockMinutes()
-
-  if minute <= 9 then
-		minute = "0" .. minute
-  end
-
-  local timesent = hour .. ":" .. minute
-  if guiEnabled then
-    SendNUIMessage({
-      openSection = "timeheader",
-      timestamp = timesent,
-    })   
-  end
-end
-
-RegisterNUICallback('btnGiveKey', function(data, cb)
-  TriggerEvent("houses:GiveKey")
-end)
-RegisterNetEvent("returnPlayerKeys")
-AddEventHandler("returnPlayerKeys", function(ownedkeys,sharedkeys)
-  
-      if not guiEnabled then
-        return
-      end
-      SendNUIMessage({
-        openSection = "keys",
-        keys = {
-          sharedKeys = sharedkeys,
-          ownedKeys = ownedkeys
-        }
-      })
-end)
-
-function CellFrontCamActivate(activate)
-	return Citizen.InvokeNative(0x2491A93618B7D838, activate)
-end
-
-local selfieMode = false
-local isCamera, frontCam = false, false
-RegisterNUICallback('phone:selfie', function()
-  selfieMode = not selfieMode
-  closeGui()
-  ToggleCamera()
-end)
-
-RegisterNUICallback('submitBg', function(data, cb)
-  -- TriggerServerEvent('phone:saveWallpaper', exports['serenity_manager']:isPed('cid'),data.bg)
-  -- SendNUIMessage({openSection = "screenSaver"})
-
-  wallPaper = ""
-  Wait(5)
-  local wallPaperSelecionado = data.bg
-  TriggerEvent('serenity-phone:grabBackground', wallPaperSelecionado)
-  -- TriggerServerEvent("phone:saveWallpaper", exports['serenity_manager']:isPed('cid'), wallPaperSelecionado)
-  SetResourceKvp(exports['serenity_manager']:isPed('cid').."-bg", wallPaperSelecionado)
-  TriggerEvent('changeBG', wallPaperSelecionado)
-end)
-
-AddEventHandler('changeBG', function(bg)
-  SendNUIMessage({
-    openSection = "phoneBg",
-    phoneBg = bg
-  })
-end)
-local takePhoto = false
-local time = 0
-
-function CellFrontCamActivate(activate) return Citizen.InvokeNative(0x2491A93618B7D838, activate) end
-
-function ToggleCamera()
-
-  CreateMobilePhone(1)
-  CellCamActivate(true, true)
-  takePhoto = true
-  Citizen.Wait(0)
-  if hasFocus == true then
-    SetNuiFocus(false, false)
-    hasFocus = false
-  end
-	while takePhoto do
-    Citizen.Wait(0)
-
-		if IsControlJustPressed(1, 27) then -- Toogle Mode
-			frontCam = not frontCam
-			CellFrontCamActivate(frontCam)
-    elseif IsControlJustPressed(1, 177) then -- CANCEL
-      DestroyMobilePhone()
-      CellCamActivate(false, false)
-      takePhoto = false
-      break
-    elseif IsControlJustPressed(1, 176) and takePhoto then -- TAKE.. PIC
-        if time == 0 then
-          time = 10
-            exports['screenshot-basic']:requestScreenshotUpload('https://discord.com/api/webhooks/864136156345532458/WMOSkd3n1T7evyimq86sVbUjmhWXZkdV4KDK7BQ0gdK_fV18UbXnpO7mEcij8_MPey6y', 'files[]', function(data)
-              local resp = json.decode(data)
-
-              TriggerServerEvent("InteractSound_SV:PlayWithinDistance", 4.5, "photo-capture1", 0.03)
-              
-              DestroyMobilePhone()
-              CellCamActivate(false, false)
-              SetTimeout(2000, function()
-                TriggerServerEvent("InteractSound_SV:PlayWithinDistance", 4.5, "phone-notify", 0.10)
-
-                SetNuiFocus(true,true)
-                SendNUIMessage({
-                  selfiebox = true,
-                  openSection = "selfiebox",
-                  imgLink = resp.attachments[1].proxy_url,
-                  img = resp.attachments[1].proxy_url
-                })
-              end)
-              
-            takePhoto = false
-            
-          end)
-        else
-        end
-		end
-		HideHudComponentThisFrame(7)
-		HideHudComponentThisFrame(8)
-		HideHudComponentThisFrame(9)
-		HideHudComponentThisFrame(6)
-		HideHudComponentThisFrame(19)
-    HideHudAndRadarThisFrame()
-  end
-end
+local serverstockvalues = {
+    [1] = { ["name"] = "SYNDEE", ["value"] = 100.0, ["identifier"] = "Syndite", ["lastchange"] = 0.00, ["amountavailable"] = math.random(200,350) },
+    [2] = { ["name"] = "THEGOODBOYS", ["value"] = 50.0, ["identifier"] = "TGB Coin", ["lastchange"] = 0.00, ["amountavailable"] = math.random(400,500) },
+    [3] = { ["name"] = "DAVADAM PRIME", ["value"] = 1000.0, ["identifier"] = "DVD Prime", ["lastchange"] = 0.00, ["amountavailable"] = math.random(100,200) },
+  }
 
 Citizen.CreateThread(function()
-  while true do
-    Wait(1000)
-      if time > 0 then
-        time = time - 1
-        if time == 0 then
-          time = 0
-        end
-      end
-    end
+--   TriggerEvent('deleteAllTweets')
+--   TriggerEvent('deleteAllYP')
 end)
 
-RegisterNUICallback('closeSelfieBox', function()
-  SendNUIMessage({
-    openSection = "selfieboxClose",
-  })
-  SetNuiFocus(false, false)
-end)
+local callID = nil
 
-RegisterNUICallback('closeSelfi', function()
-  SetNuiFocus(false, false)
-end)
-
-RegisterNUICallback('trackTaskLocation', function(data, cb)
-    local taskID = findTaskIdFromBlockChain(data.TaskIdentifier)
-    TriggerEvent("DoLongHudText","Location Set", 1)
-
-    SetNewWaypoint(activeTasks[taskID]["Location"]["x"],activeTasks[taskID]["Location"]["y"])
-end)
-
-
-RegisterCommand('email', function()
-  -- TriggerEvent("chatMessage", "Suspicious Individual", 8, "Look at your gps and find the house you'll be breaking in")
-  TriggerEvent('phone:addnotification',"Suspicious Individual","Look at your gps and find the house you'll be breaking in")
-end)
-
-RegisterNetEvent("phone:error")
-AddEventHandler("phone:error", function()
-      SendNUIMessage({
-        openSection = "error",
-        textmessage = "<b>Network Error</b> <br><br> Please contact support if this error persists, thank you for using Syko's Phone Services.",
-      })   
-end)
-
--- RegisterNUICallback('manageGroup', function(data)
---   local groupid = data.GroupID
-  
---   local rank = GroupRank(groupid)
---   if rank < 2 then
---     SendNUIMessage({
---       openSection = "error",
---       textmessage = "Permission Error",
---     })   
---     return
---   end
-
---   SendNUIMessage({
---       openSection = "error",
---       textmessage = "Loading, please wait.",
---   })   
-
---   TriggerServerEvent("group:pullinformation",groupid,rank)
-
--- end)
-
-RegisterNUICallback('btnProperty', function(data, cb)
-  loading()
-  local realEstateRank = GroupRank("real_estate")
-  if realEstateRank > 0 then
-    SendNUIMessage({
-        openSection = "RealEstate",
-        RERank = realEstateRank
-    })        
+RegisterNetEvent('GetTweets')
+AddEventHandler('GetTweets', function(srcId)
+  local src = source
+  if srcId ~= nil then
+    src = srcId
   end
-end)
 
-
-
-RegisterNUICallback('wenmo', function(data, cb)
-  SendNUIMessage({
-    openSection = "bankManage",
-    groupData = {
-      groupName = 'poop',
-      bank = 'poop',
-      groupId = 'poop',
-      employees = 'poop',
-    }
-  })  
-  loading()
-
-      
-  
-end)
-
-
-RegisterNUICallback('btnProperty2', function(data, cb)
-  loading()
-  TriggerServerEvent("ReturnHouseKeys", exports['serenity_manager']:isPed('cid'))
-end)
-
-RegisterNUICallback('btnPayMortgage', function(data, cb)
-  loading()
-  TriggerEvent("housing:attemptpay")
-end)
-
-RegisterNUICallback('retrieveHouseKeys', function(data, cb)
-  TriggerEvent("houses:retrieveHouseKeys")
-  cb('ok')
-end)
-
-RegisterNUICallback('btnFurniture', function(data, cb)
-  closeGui()
-  --TriggerEvent("DoLongHudText", "Coming soon.", 2)
-  TriggerEvent("openFurniture")
-end)
-
-RegisterNUICallback('btnPropertyModify', function(data, cb)
-TriggerEvent("housing:info:realtor","modify")
-end)
-
-RegisterNUICallback('removeHouseKey', function(data, cb)
-  TriggerEvent("houses:removeHouseKey", data.targetId)
-  cb('ok')
-end)
-
-
-RegisterNUICallback('removeSharedKey', function(data, cb)
-  local cid = exports["serenity_manager"]:isPed("cid")
-  TriggerServerEvent("houses:removeSharedKey", data.house_id, cid)
-  cb('ok')
-end)
-
-RegisterNUICallback('btnPropertyReset', function(data, cb)
-TriggerEvent("housing:info:realtor","reset")
-end)
-
-RegisterNUICallback('btnPropertyClothing', function(data, cb)
-TriggerEvent("housing:info:realtor","setclothing")
-end)
-
-RegisterNUICallback('btnPropertyStorage', function(data, cb)
-TriggerEvent("housing:info:realtor","setstorage")
-end)
-
-RegisterNUICallback('btnPropertySetGarage', function(data, cb)
-TriggerEvent("housing:info:realtor","setgarage")
-end)
-
-RegisterNUICallback('btnPropertyWipeGarages', function(data, cb)
-TriggerEvent("housing:info:realtor","wipegarages")
-end)
-
-RegisterNUICallback('btnPropertySetBackdoorInside', function(data, cb)
-TriggerEvent("housing:info:realtor","backdoorinside")
-end)
-
-RegisterNUICallback('btnPropertySetBackdoorOutside', function(data, cb)
-TriggerEvent("housing:info:realtor","backdooroutside")
-end)
-
-RegisterNUICallback('btnPropertyUpdateHouse', function(data, cb)
-TriggerEvent("housing:info:realtor","update")
-end)
-
-RegisterNUICallback('btnRemoveSharedKey', function(data, cb)
-TriggerEvent("housing:info:realtor","update")
-end)
-
-RegisterNUICallback('btnPropertyOutstanding', function(data, cb)
-  TriggerEvent("housing:info:realtor","PropertyOutstanding")
+  exports.ghmattimysql:execute('SELECT * FROM (SELECT * FROM tweets ORDER BY `time` DESC LIMIT 50) sub ORDER BY time ASC', {}, function(tweets) -- Get most recent 100 tweets
+      if src then
+        local allTweet = {}
+        for i,k in pairs(tweets) do
+            table.insert(allTweet, {
+                ['handle'] = k.handle,
+                ['message'] = json.encode(k.message),
+                ['time'] = k.time
+            })
+        end
+          TriggerClientEvent('Client:UpdateTweets', src, tweets)
+          return
+      else
+      end
   end)
-
-RegisterNUICallback('btnPropertyUnlock', function(data, cb)
-  TriggerEvent("housing:info:realtor","unlock")
 end)
 
-RegisterNUICallback('btnPropertyUnlock2', function(data, cb)
-  TriggerEvent("housing:info:realtor","unlock2")
+RegisterNetEvent('serenity-phone:openGetTweets')
+AddEventHandler('serenity-phone:openGetTweets', function()
+  local src = source
+  exports.ghmattimysql:execute('SELECT * FROM (SELECT * FROM tweets ORDER BY `time` DESC LIMIT 50) sub ORDER BY time ASC', {}, function(tweets) -- Get most recent 100 tweets
+          TriggerClientEvent('Client:UpdateTweets', -1, tweets)
+  end)
 end)
 
-RegisterNUICallback('btnPropertyHouseCreationPoint', function(data, cb)
-TriggerEvent("housing:info:realtor","creationpoint")
-end)
-RegisterNUICallback('btnPropertyStopHouse', function(data, cb)
-TriggerEvent("housing:info:realtor","stop")
-end)
-RegisterNUICallback('btnAttemptHouseSale', function(data, cb)
-TriggerEvent("housing:findsalecid",data.cid,data.price)
-end)
-RegisterNUICallback('btnTransferHouse', function(data, cb)
-TriggerEvent("housing:transferHouseAttempt", data.cid)
-end)
-RegisterNUICallback('btnEvictHouse', function(data, cb)
-TriggerEvent("housing:evictHouseAttempt")
-end)
-RegisterNUICallback('btnGiveKey', function(data, cb)
-  TriggerEvent("houses:GiveKey")
-end)
-RegisterNUICallback('btnFurniture', function(data, cb)
-  closeGui()
-  TriggerEvent("openFurniture")
-end)
-
-
--- real estate nui app responses end
-
-
-
-
--- local recentcalls = {}
-
--- RegisterNUICallback('getCallHistory', function()
---   SendNUIMessage({
---     openSection = "callHistory",
---     callHistory = recentcalls
---   })
--- end)
-
-RegisterNUICallback('btnHousing', function()
-  -- print("HOUSE BUTTON")
-  newHouses = {}
-  allNewHouses = {}
-  myAccessHouse = {}
-  local apt = RPC.execute("serenity-phone:apt")
-  local housing = exports['serenity-housing']:housingForPhone()
-  local apartment = exports['serenity-apartments']:getMyCurrentApartment()
-  myHousess = RPC.execute("serenity-phone:getCurrentOwned")
-  accessHouse = RPC.execute('serenity-phone:getAccessHouse_2')
-  TriggerServerEvent('checkKeys')
-  local cid = exports["serenity_manager"]:isPed("cid")
-  for i,v in pairs(myHousess) do
-    -- print("STATUS", v.status)
-    table.insert(newHouses, {
-      hid = v.hid,
-      cid = v.cid,
-      status = v.status,
-      cat = exports['serenity-housing']:getHousingCatFromPropertID(v.hid),
-      
-    })
-  end
-  for l,s in pairs(accessHouse) do
-    -- print("STATUS", v.status)
-    if tonumber(cid) ==  tonumber(s.cid) then
-      table.insert(myAccessHouse, {
-        house = s.house,
-        cid = s.cid,
-        status = s.status,
-        -- name = s.name,
-        cat = exports['serenity-housing']:getHousingCatFromPropertID(s.house),
-        
-      })
-    end
-  end
-  SendNUIMessage({
-    openSection = "housing",
-    apId = apt.id,
-    sName = apartment.streetName,
-    myHouse = newHouses,
-    houses = housing,
-    accessHouse = myAccessHouse,
-  })
-end)
-
-RegisterNetEvent('updateHousing')
-AddEventHandler('updateHousing', function()
-  -- print("HOUSE BUTTON")
-  newHouses = {}
-  allNewHouses = {}
-  myAccessHouse = {}
-  local apt = RPC.execute("serenity-phone:apt")
-  local housing = exports['serenity-housing']:housingForPhone()
-  local apartment = exports['serenity-apartments']:getMyCurrentApartment()
-  myHousess = RPC.execute("serenity-phone:getCurrentOwned")
-  accessHouse = RPC.execute('serenity-phone:getAccessHouse_2')
-  TriggerServerEvent('checkKeys')
-  local cid = exports["serenity_manager"]:isPed("cid")
-  for i,v in pairs(myHousess) do
-    -- print("STATUS", v.status)
-    table.insert(newHouses, {
-      hid = v.hid,
-      cid = v.cid,
-      status = v.status,
-      cat = exports['serenity-housing']:getHousingCatFromPropertID(v.hid),
-      
-    })
-  end
-  for l,s in pairs(accessHouse) do
-    -- print("STATUS", v.status)
-    if tonumber(cid) ==  tonumber(s.cid) then
-      table.insert(myAccessHouse, {
-        house = s.house,
-        cid = s.cid,
-        status = s.status,
-        -- name = s.name,
-        cat = exports['serenity-housing']:getHousingCatFromPropertID(s.house),
-        
-      })
-    end
-  end
-  SendNUIMessage({
-    openSection = "housing",
-    apId = apt.id,
-    sName = apartment.streetName,
-    myHouse = newHouses,
-    houses = housing,
-    accessHouse = myAccessHouse,
-  })
-end)
-
--- Citizen.CreateThread(function()
---   while true do
---     Wait(3000)
---     local myHouse = RPC.execute("serenity-phone:getCurrentOwned")
---     print("MY HOUSE", myHouse.hid,json.encode(myHouse))
---   end
--- end)
-
-local pcs = {
-  [1] = 1333557690,
-  [2] = -1524180747, 
-}
-
-
-function IsNearPC()
-  for i = 1, #pcs do
-    local objFound = GetClosestObjectOfType( GetEntityCoords(PlayerPedId()), 0.75, pcs[i], 0, 0, 0)
-
-    if DoesEntityExist(objFound) then
-      TaskTurnPedToFaceEntity(PlayerPedId(), objFound, 3.0)
-      return true
-    end
-  end
-
-  if #(GetEntityCoords(PlayerPedId()) - vector3(1272.27, -1711.91, 54.78)) < 1.0 then
-    SetEntityHeading(PlayerPedId(),14.0)
-    return true
-  end
-  if #(GetEntityCoords(PlayerPedId()) - vector3(1275.4, -1710.52, 54.78)) < 5.0 then
-    SetEntityHeading(PlayerPedId(),300.0)
-    return true
-  end
-
-
-  return false
-end
-
-RegisterNetEvent("open:deepweb")
-AddEventHandler("open:deepweb", function()
-  SetNuiFocus(false,false)
-  SetNuiFocus(true,true)
-  guiEnabled = true
-  SendNUIMessage({
-    openSection = "deepweb" 
-  })
-end)
-
-RegisterNetEvent("gangTasks:updated")
-AddEventHandler("gangTasks:updated", function()
-  local taskObject = {}
-  for i = 1, #activeTasks do
-
-    if activeTasks[i]["Gang"] ~= 0 and gang ~= 0 and tonumber(activeTasks[i]["taskOwnerCid"]) ~= cid then
-      if gang == activeTasks[i]["Gang"] then
-        taskObject[#taskObject + 1 ] = {
-          name = TaskTitle[activeTasks[i]["TaskType"]],
-          assignedTo = activeTasks[i]["taskOwnerCid"],
-          status = TaskState[activeTasks[i]["TaskState"]],
-          identifier = activeTasks[i]["BlockChain"],
-          groupId = gang,
-          retrace = 0,
-        }
-      end
-    elseif activeTasks[i]["Gang"] == 0 and tonumber(activeTasks[i]["taskOwnerCid"]) ~= cid then
-      
-      local passes = exports["serenity_manager"]:isPed("passes")
-      for z = 1, #passes do
-
-        local passType = activeTasks[i]["Group"]
-        if passes[z].pass_type == passType and (passes[z].rank == 2 or passes[z].rank > 3) then
-          taskObject[#taskObject + 1 ] = {
-            name = activeTasks[i]["TaskNameGroup"],
-            assignedTo = activeTasks[i]["taskOwnerCid"],
-            status = TaskState[activeTasks[i]["TaskState"]],
-            identifier = activeTasks[i]["BlockChain"],
-            groupId = passType,
-            retrace = 0,
-          }
-        end
-
-      end
-
-    else
-      if tonumber(activeTasks[i]["taskOwnerCid"]) == cid then
-
-        local TaskName = ""
-        if activeTasks[i]["Gang"] == 0 then
-          TaskName = activeTasks[i]["TaskNameGroup"]
-        else
-          TaskName = TaskTitle[activeTasks[i]["TaskType"]]
-        end
-        taskObject[#taskObject + 1 ] = {
-          name = TaskName,
-          assignedTo = activeTasks[i]["taskOwnerCid"],
-          status = TaskState[activeTasks[i]["TaskState"]],
-          identifier = activeTasks[i]["BlockChain"],
-          groupId = gang,
-          retrace = 1
-        }
-      end
-    end
-  end
-
-  SendNUIMessage({
-    openSection = "addTasks",
-    tasks = taskObject
-  })
-end)
-
-RegisterNetEvent("purchasePhone")
-AddEventHandler("purchasePhone", function()
-  TriggerServerEvent("purchasePhone")
-end)
-
-RegisterNUICallback('btnMute', function()
-  if phoneNotifications then
-    TriggerEvent("DoLongHudText","Notifications Disabled.", 2)
-  else
-    TriggerEvent("DoLongHudText","Notifications Enabled.", 1)
-  end
-  phoneNotifications = not phoneNotifications
-end)
-
-RegisterNetEvent("tryTweet")
-AddEventHandler("tryTweet", function(tweetinfo,message,user)
-  if hasPhone() then
-    TriggerServerEvent("AllowTweet",tweetinfo,message)
-  end
-end)
-
-RegisterNUICallback('btnDecrypt', function()
-  TriggerEvent("secondaryjob:accepttask")
-end)
-
-
-
-RegisterNUICallback('btnGarage', function()
-  local LocalPlayer = exports["serenity-core"]:getModule("LocalPlayer")
-  local Player = LocalPlayer:getCurrentCharacter()
-  TriggerServerEvent("garages:CheckGarageForVeh", Player.id)
-end)
-
-
-RegisterNUICallback('btnHelp', function()
-  closeGui()
-  TriggerEvent("openWiki")
-end)
-
-RegisterNUICallback('carpaymentsowed', function()
-  TriggerEvent("car:carpaymentsowed")
-end)
-
-RegisterNUICallback('sellVeh', function(data)
-  TriggerEvent('DoLongHudText', 'Coming Soon')
-end)
-
-local timeSpawn = 0
-RegisterNUICallback('vehspawn', function(data)
-  local car, coords = RPC.execute("phone:attempt:sv", data.vehplate)
-    canSpawnVehs = false
-    if timeSpawn == 0 then
-      timeSpawn = 30
-      if car.vehicle_state == "Out" then
-        SpawnVehicle(car.model, coords[1],coords[2],coords[3], car.fuel, car.data, car.license_plate, true,car.engine_damage,car.body_damage)
-        startSpawnTime()
-      else
-        TriggerEvent('DoLongHudText', "Check you car in phone, its not yet out in garage.")
-      end
-    else
-      TriggerEvent('DoLongHudText', "Please wait "..timeSpawn.." to use spawn again.")
-    end
-end)
-
-function startSpawnTime()
-  while true do
-    Wait(1000)
-    timeSpawn = timeSpawn-1
-    if timeSpawn == 0 then
-      break
-    end
-  end
-end
-RegisterNUICallback('vehtrack', function(data)
-  TriggerServerEvent("get:vehicle:coords", data.vehplate)
-end)
-
-
-RegisterNUICallback('vehiclePay', function(data)
-  TriggerServerEvent('car:dopayment', data.vehiclePlate)
-end)
-
-RegisterNetEvent("phone:carspawn", function(data,coords,state)
-  for ind, value in pairs(data) do
-    if state == "Out" then
-      if #(vector3(coords[1],coords[2],coords[3]) - GetEntityCoords(PlayerPedId())) < 10.0 then
-       -- DeleteBlip()
-        trackVehicle = false
-        SpawnVehicle(value.model, coords[1],coords[2],coords[3], value.fuel, value.data, value.license_plate, true,value.engine_damage,value.body_damage)
-      else
-        TriggerEvent("DoLongHudText","Nao podes tirar o veiculo de tao longe.", 2)
-      end
-    else
-      TriggerEvent("DoLongHudText","Veiculo esta numa garagem.", 2)
-    end
-  end
-end)
-
-CurrentDisplayVehicle, ParkingSpot = nil, nil
-
-function SpawnVehicle(vehicle, x,y,z, Fuel, customized, plate, IsViewing, enginehealth, bodyhealth)
-  if DoesEntityExist(spawningVeh) then
-    DeleteEntity(spawningVeh)
-  end
-	local car = GetHashKey(vehicle)
-	local customized = json.decode(customized)
-	Citizen.CreateThread(function()			
-		Citizen.Wait(100)
-        RequestModel(car)
-        while not HasModelLoaded(car) do
-            Citizen.Wait(0)
-        end
-        spawningVeh = CreateVehicle(car, x, y, z, true, false)
-        SetModelAsNoLongerNeeded(car)
-        DecorSetBool(spawningVeh, "PlayerVehicle", true)
-        SetVehicleOnGroundProperly(spawningVeh)
-        SetVehicleDirtLevel(spawningVeh, 0.0)
-        SetEntityInvincible(spawningVeh, false) 
-        SetVehicleNumberPlateText(spawningVeh, plate)
-        SetVehicleProps(spawningVeh, customized)
-        exports['serenity-vehicles']:SetVehicleIdentifier(spawningVeh, vid)
-        TriggerEvent("keys:addNew",spawningVeh, plate)
-        SetVehicleHasBeenOwnedByPlayer(spawningVeh,true)
-        local id = NetworkGetNetworkIdFromEntity(spawningVeh)
-        SetNetworkIdCanMigrate(id, true)
-        if not IsViewing then    
-            CurrentDisplayVehicle = nil
-            RPC.execute("serenity-garages:states", "Out", plate, exports['serenity-menu']:currentGarage(), pUpdatedFuel)
-        end
-    end)
-end
-
-function SetVehicleProps(veh, customized)
-  SetVehicleModKit(veh, 0)
-  if customized then
-      
-      SetVehicleWheelType(veh, customized.wheeltype)
-      SetVehicleNumberPlateTextIndex(veh, 3)
-
-      for i = 0, 16 do
-          SetVehicleMod(veh, i, customized.mods[tostring(i)])
-      end
-
-      for i = 17, 22 do
-          ToggleVehicleMod(veh, i, customized.mods[tostring(i)])
-      end
-
-      for i = 23, 24 do
-          local isCustom = customized.mods[tostring(i)]
-          if (isCustom == nil or isCustom == "-1" or isCustom == false or isCustom == 0) then
-              isSet = false
-          else
-              isSet = true
-          end
-          SetVehicleMod(veh, i, customized.mods[tostring(i)], isCustom)
-      end
-
-      for i = 23, 48 do
-          SetVehicleMod(veh, i, customized.mods[tostring(i)])
-      end
-
-      for i = 0, 3 do
-          SetVehicleNeonLightEnabled(veh, i, customized.neon[tostring(i)])
-      end
-
-      if customized.extras ~= nil then
-          for i = 1, 12 do
-              local onoff = tonumber(customized.extras[i])
-              if onoff == 1 then
-                  SetVehicleExtra(veh, i, 0)
-              else
-                  SetVehicleExtra(veh, i, 1)
-              end
-          end
-      end
-
-      if customized.oldLiveries ~= nil and customized.oldLiveries ~= 24  then
-          SetVehicleLivery(veh, customized.oldLiveries)
-      end
-
-      if customized.plateIndex ~= nil and customized.plateIndex ~= 4 then
-          SetVehicleNumberPlateTextIndex(veh, customized.plateIndex)
-      end
-
-      -- Xenon Colors
-      SetVehicleXenonLightsColour(veh, (customized.xenonColor or -1))
-      SetVehicleColours(veh, customized.colors[1], customized.colors[2])
-      SetVehicleExtraColours(veh, customized.extracolors[1], customized.extracolors[2])
-      SetVehicleNeonLightsColour(veh, customized.lights[1], customized.lights[2], customized.lights[3])
-      SetVehicleTyreSmokeColor(veh, customized.smokecolor[1], customized.smokecolor[2], customized.smokecolor[3])
-      SetVehicleWindowTint(veh, customized.tint)
-      SetVehicleInteriorColour(veh, customized.dashColour)
-      SetVehicleDashboardColour(veh, customized.interColour)
-  else
-
-      SetVehicleColours(veh, 0, 0)
-      SetVehicleExtraColours(veh, 0, 0)
-
-  end
-end
-
-function findVehFromPlateAndLocate(plate)
-
-  for ind, value in pairs(vehicles) do
-
-    vehPlate = value.license_plate
-  if vehPlate == plate then
-    coordlocation = value.coords
-    SetNewWaypoint(coordlocation[1], coordlocation[2], coordlocation[3])
-    end
-  end
-end
-
-
-
-function Trim(value)
-	if value then
-		return (string.gsub(value, "^%s*(.-)%s*$", "%1"))
-	else
-		return nil
-	end
-end
-
-
-
-local recentspawnrequest = false
-function findVehFromPlateAndSpawn(plate)
-
-  if IsPedInAnyVehicle(PlayerPedId(), false) then
-    return
-  end
-
-  for ind, value in pairs(vehicles) do
-
-    vehPlate = value.license_plate
-    if vehPlate == plate then
-      state = value.vehicle_state
-      coordlocation = value.coords
-
-      if #(vector3(coordlocation[1],coordlocation[2],coordlocation[3]) - GetEntityCoords(PlayerPedId())) < 10.0 and state == "Out" then
-
-        local DoesVehExistInProximity = CheckExistenceOfVehWithPlate(vehPlate)
-
-        if not DoesVehExistInProximity and not recentspawnrequest then
-          recentspawnrequest = true
-          TriggerServerEvent("garages:phonespawn",vehPlate)
-          Wait(10000)
-          recentspawnrequest = false
-        else
-          print("Found vehicle already existing!")
-        end
-
-      end
-
-    end
-
-  end
-
-end
-
-RegisterNetEvent("phone:SpawnVehicle")
-AddEventHandler('phone:SpawnVehicle', function(vehicle, plate, customized, state, Fuel, coordlocation)
-  TriggerEvent("garages:SpawnVehicle", vehicle, plate, customized, state, Fuel, coordlocation)
-end)
-
-
-
-
-Citizen.CreateThread(function()
-  local invehicle = false
-  local plateupdate = "None"
-  local vehobj = 0
-  while true do
-      Wait(1000)
-      if not invehicle and IsPedInAnyVehicle(PlayerPedId(), false) then
-        local playerPed = PlayerPedId()
-        local veh = GetVehiclePedIsIn(playerPed, false)
-          if GetPedInVehicleSeat(veh, -1) == PlayerPedId() then
-            vehobj = veh
-            local checkplate = GetVehicleNumberPlateText(veh)
-            invehicle = true
-            plateupdate = checkplate
-            local coords = GetEntityCoords(vehobj)
-            coords = { coords["x"], coords["y"], coords["z"] }
-            TriggerServerEvent("vehicle:coords",plateupdate,coords)
-          end
-      end
-      if invehicle and not IsPedInAnyVehicle(PlayerPedId(), false) then
-        local coords = GetEntityCoords(vehobj)
-        coords = { coords["x"], coords["y"], coords["z"] }
-        TriggerServerEvent("vehicle:coords",plateupdate,coords)
-        invehicle = false
-        plateupdate = "None"
-        vehobj = 0
-      end  
-  end
-end)
-
-
-
-function CheckExistenceOfVehWithPlate(platesent)
-  local playerped = PlayerPedId()
-  local playerCoords = GetEntityCoords(playerped)
-  local handle, scannedveh = FindFirstVehicle()
-  local success
-  local rped = nil
-  local distanceFrom
-  repeat
-      local pos = GetEntityCoords(scannedveh)
-      local distance = #(playerCoords - pos)
-        if distance < 50.0 then
-          local checkplate = GetVehicleNumberPlateText(scannedveh)
-          if checkplate == platesent then
-            return true
-          end
-        end
-      success, scannedveh = FindNextVehicle(handle)
-  until not success
-  EndFindVehicle(handle)
-  return false
-end
-
-local currentVehicles = {}
-
-RegisterNetEvent("phone:Garage")
-AddEventHandler("phone:Garage", function(vehs)
-  vehicles = vehs
-  local showCarPayments = false
-  local rankCarshop = exports["serenity_manager"]:GroupRank("car_shop")
-  local rankImport = exports["serenity_manager"]:GroupRank("illegal_carshop")
-  local job = exports["serenity_manager"]:isPed("myjob")
-
-
-  if rankCarshop > 0 or rankImport > 0 or job == "judge" or job == "police" or job == "sheriff" or job == "state"then
-    showCarPayments = true
-  end
-
-  local parsedVehicleData = {}
-  for ind, value in pairs(vehs) do
-    enginePercent = value.engine_damage / 10
-    bodyPercent = value.body_damage / 10
-    vehName = value.name
-    vehPlate = value.license_plate
-    currentGarage = value.current_garage
-    state = value.vehicle_state
-    fuel = value.fuel
-    model = value.model
-    -- coordlocation = value.coords
-    -- local carcoords = json.decode(coordlocation)
-   -- coordlocation = vehCoords
-    --local coordlocation = RPC.execute("GetVehCoords",vehPlate)
-   -- print(carcoords[1])
-   -- allowspawnattempt = 0
-    --canSpawn = 0
-    -- if #(vector3(coordlocation[1], coordlocation[2], coordlocation[3]) - GetEntityCoords(PlayerPedId())) < 20.0 and state == "Out" then
-    --   allowspawnattempt = 1
-    --   canSpawn = 1
-    -- end
-    
- 
-    table.insert(parsedVehicleData, {
-      name = vehName,
-      plate = vehPlate,
-      garage = currentGarage,
-      state = state,
-      enginePercent = enginePercent,
-      bodyPercent = bodyPercent,
-      payments = value.payments_left, -- total payments left
-      lastPayment = value.last_payment, -- Days left
-      amountDue = value.financed, -- amount due
-      coordlocation = coordlocation,
-      fuel = fuel,
-      model = model
-    })
-
-    for i = 1, #parsedVehicleData do
-      if parsedVehicleData[i].plate == vehSpawnPlate and canSpawnVehs and canSpawnDist < 5 then
-        parsedVehicleData[i] = {
-          name = parsedVehicleData[i].name,
-          plate = parsedVehicleData[i].plate,
-          garage = parsedVehicleData[i].garage,
-          state = parsedVehicleData[i].state,
-          enginePercent = parsedVehicleData[i].enginePercent,
-          bodyPercent = parsedVehicleData[i].bodyPercent,
-          payments = parsedVehicleData[i].payments,
-          lastPayment = parsedVehicleData[i].lastPayment,
-          amountDue = parsedVehicleData[i].amountDue,
-          coordlocation = parsedVehicleData[i].coordlocation,
-          fuel = parsedVehicleData[i].fuel,
-          model = parsedVehicleData[i].model,
-        canSpawn = 1 
-      }
-      end
-      
-      
-    end
-    -- if vehPlate ~= nil then
-    --   if value.license_plate == vehSpawnPlate and canSpawnVeh then
-    --     print("MY CAR", value.fuel,vehPlate)
-    --     -- lstnotifications[#lstnotifications + 1]
-    --     parsedVehicleData[#parsedVehicleData+1] =  {canSpawn = 1}
-    --   else
-    --     parsedVehicleData[#parsedVehicleData+1] =  {canSpawn = 0}
-    --   end
-    -- end
-
-
-  end
-  
-  SendNUIMessage({ openSection = "Garage", showCarPaymentsOwed = showCarPayments, vehicleData = parsedVehicleData})
-end)
-
-
-
-local pickuppoints = {
-  [1] =  { ['x'] = 923.94,['y'] = -3037.88,['z'] = 5.91,['h'] = 270.81, ['info'] = ' Shipping Container BMZU 822693' },
-  [2] =  { ['x'] = 938.02,['y'] = -3026.28,['z'] = 5.91,['h'] = 265.85, ['info'] = ' Shipping Container BMZU 822693' },
-  [3] =  { ['x'] = 1006.17,['y'] = -3028.94,['z'] = 5.91,['h'] = 269.31, ['info'] = ' Shipping Container BMZU 822693' },
-  [4] =  { ['x'] = 1020.42,['y'] = -3044.91,['z'] = 5.91,['h'] = 87.37, ['info'] = ' Shipping Container BMZU 822693' },
-  [5] =  { ['x'] = 1051.75,['y'] = -3045.09,['z'] = 5.91,['h'] = 268.37, ['info'] = ' Shipping Container BMZU 822693' },
-  [6] =  { ['x'] = 1134.92,['y'] = -2992.22,['z'] = 5.91,['h'] = 87.9, ['info'] = ' Shipping Container BMZU 822693' },
-  [7] =  { ['x'] = 1149.1,['y'] = -2976.06,['z'] = 5.91,['h'] = 93.23, ['info'] = ' Shipping Container BMZU 822693' },
-  [8] =  { ['x'] = 1121.58,['y'] = -3042.39,['z'] = 5.91,['h'] = 88.49, ['info'] = ' Shipping Container BMZU 822693' },
-  [9] =  { ['x'] = 830.58,['y'] = -3090.46,['z'] = 5.91,['h'] = 91.15, ['info'] = ' Shipping Container BMZU 822693' },
-  [10] =  { ['x'] = 830.81,['y'] = -3082.63,['z'] = 5.91,['h'] = 271.61, ['info'] = ' Shipping Container BMZU 822693' },
-  [11] =  { ['x'] = 909.91,['y'] = -2976.51,['z'] = 5.91,['h'] = 271.02, ['info'] = ' Shipping Container BMZU 822693' },
-}
-
-
-function DrawText3Ds(x,y,z, text)
-    local onScreen,_x,_y=World3dToScreen2d(x,y,z)
-    local px,py,pz=table.unpack(GetGameplayCamCoords())
-    SetTextScale(0.35, 0.35)
-    SetTextFont(4)
-    SetTextProportional(1)
-    SetTextColour(255, 255, 255, 215)
-    SetTextEntry("STRING")
-    SetTextCentre(1)
-    AddTextComponentString(text)
-    DrawText(_x,_y)
-    local factor = (string.len(text)) / 370
-    DrawRect(_x,_y+0.0125, 0.015+ factor, 0.03, 41, 11, 41, 68)
-end
-blip = 0
-
-function CreateBlip(location)
-    DeleteBlip()
-    blip = AddBlipForCoord(location["x"],location["y"],location["z"])
-    SetBlipSprite(blip, 514)
-    SetBlipScale(blip, 1.0)
-    SetBlipAsShortRange(blip, false)
-    BeginTextCommandSetBlipName("STRING")
-    AddTextComponentString("Pick Up")
-    EndTextCommandSetBlipName(blip)
-end
-function DeleteBlip()
-  if DoesBlipExist(blip) then
-    RemoveBlip(blip)
-  end
-end
-
-function refreshmail()
-    lstnotifications = {}
-    for i = 1, #curNotifications do
-
-        local message2 = {
-          id = tonumber(i),
-          name = curNotifications[tonumber(i)].name,
-          message = curNotifications[tonumber(i)].message
-        }
-        lstnotifications[#lstnotifications+1]= message2
-    end
-    SendNUIMessage({openSection = "notifications", list = lstnotifications})
-end
-
-local weaponList = {
-  [1] = 324215364,
-  [2] = 736523883,
-  [3] = 4024951519,
-  [4] = 1627465347,
-}
-
-local weaponListSmall = {
-  [1] = 2017895192,
-  [2] = 584646201,
-  [3] = 3218215474,
-}
-
-local luckList = {
-  [1] =  "extended_ap",
-  [2] =  "extended_sns",
-  [3] =  "extended_micro",
-  [4] =  "rifleammo",
-  [5] =  "heavyammo",
-  [6] =  "lmgammo",
-}
-
--- RegisterNUICallback('btnDelivery', function()
---   TriggerEvent("trucker:confirmation")
--- end)
-
--- RegisterNUICallback('btnPackages', function()
---   insideDelivers = true
---   TriggerEvent("Trucker:GetPackages")
--- end)
-
--- RegisterNUICallback('btnTrucker', function()
---   TriggerEvent("Trucker:GetJobs")
--- end)
-
--- RegisterNUICallback('resetPackages', function()
---   insideDelivers = false
--- end)
-
-
--- RegisterNetEvent("phone:trucker")
--- AddEventHandler("phone:trucker", function(jobList)
-
---   local deliveryObjects = {}
---   for i, v in pairs(jobList) do
---     local nameTag = ""
---     local itemTag
---     local currentStreetHash, intersectStreetHash = GetStreetNameAtCoord(v.pickup[1], v.pickup[2], v.pickup[3], currentStreetHash, intersectStreetHash)
---     local currentStreetName = GetStreetNameFromHashKey(currentStreetHash)
---     local intersectStreetName = GetStreetNameFromHashKey(intersectStreetHash)
-
---     local currentStreetHash2, intersectStreetHash2 = GetStreetNameAtCoord(v.drop[1], v.drop[2], v.drop[3], currentStreetHash2, intersectStreetHash2)
---     local currentStreetName2 = GetStreetNameFromHashKey(currentStreetHash2)
---     local intersectStreetName2 = GetStreetNameFromHashKey(intersectStreetHash2)
---     if v.active == 0 then
---         table.insert(deliveryObjects, {
---           targetStreet = currentStreetName2,
---           jobId = v.id,
---           jobType = v.JobType
---         })
---     end
---   end 
---   SendNUIMessage({
---     openSection = "deliveryJob",
---     deliveries = deliveryObjects
---   })
-    
--- end)
-
--- local requestHolder = 0
-
--- RegisterNetEvent("phone:packages")
--- AddEventHandler("phone:packages", function(packages)
---   while insideDelivers do
---     if requestHolder ~= 0 then
---       SendNUIMessage({
---         openSection = "packagesWith"
---       })
---     else
---       SendNUIMessage({
---         openSection = "packages"
---       })
---     end
-    
-    
---     for i, v in pairs(packages) do
---       if GetPlayerServerId(PlayerId()) == v.source then
---         local currentStreetHash2, intersectStreetHash2 = GetStreetNameAtCoord(v.drop[1], v.drop[2], v.drop[3], currentStreetHash2, intersectStreetHash2)
---         local currentStreetName2 = GetStreetNameFromHashKey(currentStreetHash2)
---         local intersectStreetName2 = GetStreetNameFromHashKey(intersectStreetHash2)
-
---         SendNUIMessage({openSection = "addPackages", street2 = currentStreetName2, jobId = v.id ,distance = getDriverDistance(v.driver , v.drop)})
---       end
---     end 
---     Wait(4000)
---   end
--- end)
-
-
--- RegisterNetEvent("phone:OwnerRequest")
--- AddEventHandler("phone:OwnerRequest", function(holder)
---   requestHolder = holder
--- end)
-
--- RegisterNUICallback('btnRequest', function()
---   TriggerServerEvent("trucker:confirmRequest",requestHolder)
---   requestHolder = 0
--- end)
-
-
-
-
--- function getDriverDistance(driver , drop)
---   local dist = 0
-
---   local ped = GetPlayerPed(value)
---   if driver ~= 0 then
---     local current = #(vector3(drop[1],drop[2],drop[3]) - GetEntityCoords(ped))
---     if current < 15 then
---       dist = "Driver at store"
---     else
---       dist = current
---       dist = math.ceil(dist)
---     end
-    
---   else
---     dist = "Waiting for driver"
---   end
-
---   return dist
--- end
-
-RegisterNUICallback('selectedJob', function(data, cb)
-    TriggerEvent("Trucker:SelectJob",data)
-end)
-
-
-
--- gurgleList = {}
--- RegisterNetEvent('websites:updateClient')
--- AddEventHandler('websites:updateClient', function(passedList)
---   gurgleList = passedList
-
---   local gurgleObjects = {}
-
---   if not guiEnabled then
---     return
---   end
-
---   for i = 1, #gurgleList do
---     table.insert(gurgleObjects, {
---       webTitle = gurgleList[i]["Title"], 
---       webKeywords = gurgleList[i]["Keywords"], 
---       webDescription = gurgleList[i]["Description"] 
---     })
---   end
-
---   SendNUIMessage({ openSection = "gurgleEntries", gurgleData = gurgleObjects})
--- end)
-
-function DrawRadioChatter(x,y,z, text,opacity)
-    local onScreen,_x,_y=World3dToScreen2d(x,y,z)
-    local px,py,pz=table.unpack(GetGameplayCamCoords())
-    if opacity > 215 then
-      opacity = 215
-    end
-    SetTextScale(0.35, 0.35)
-    SetTextFont(4)
-    SetTextProportional(1)
-    SetTextColour(255, 255, 255, opacity)
-    SetTextEntry("STRING")
-    SetTextCentre(1)
-    AddTextComponentString(text)
-    DrawText(_x,_y)
-    local factor = (string.len(text)) / 370
-    DrawRect(_x,_y+0.0125, 0.015+ factor, 0.03, 41, 11, 41, 68)
-end
-local activeMessages = 0
-
-RegisterNetEvent('radiotalkcheck')
-AddEventHandler('radiotalkcheck', function(args,senderid)
-
-  if hasRadio() and radioChannel ~= 0 then
-    randomStatic(true)
-
-    local ped = GetPlayerPed( -1 )
-
-      if ( DoesEntityExist( ped ) and not IsEntityDead( ped )) then
-
-        loadAnimDict( "random@arrests" )
-
-        TaskPlayAnim(ped, "random@arrests", "generic_radio_chatter", 8.0, 2.0, -1, 50, 2.0, 0, 0, 0 )
-
-        SetCurrentPedWeapon(ped, `WEAPON_UNARMED`, true)
-      end
-
-
-    TriggerServerEvent("radiotalkconfirmed",args,senderid,radioChannel)
-    Citizen.Wait(2500)
-    ClearPedSecondaryTask(PlayerPedId())
-  end
-
-end)
-
-function loadAnimDict( dict )
-    while ( not HasAnimDictLoaded( dict ) ) do
-        RequestAnimDict( dict )
-        Citizen.Wait( 5 )
-    end
-end 
-
-function randomStatic(loud)
-  local vol = 0.05
-  if loud then
-    vol = 0.9
-  end
-  local pickS = math.random(4)
-  if pickS == 4 then
-    TriggerEvent("InteractSound_CL:PlayOnOne","radiostatic1",vol)
-  elseif pickS == 3 then
-    TriggerEvent("InteractSound_CL:PlayOnOne","radiostatic2",vol)
-  elseif pickS == 2 then
-    TriggerEvent("InteractSound_CL:PlayOnOne","radiostatic3",vol)
-  else
-    TriggerEvent("InteractSound_CL:PlayOnOne","radioclick",vol)
-  end
-
-end
-
-RegisterNetEvent('radiotalk')
-AddEventHandler('radiotalk', function(args,senderid,channel)
-
-    local senderid = tonumber(senderid)
-
-    table.remove(args,1)
-    local radioMessage = ""
-    for i = 1, #args do
-        radioMessage = radioMessage .. " " .. args[i]
-    end
-
-    if channel == radioChannel and hasRadio() and radioMessage ~= nil then
-      -- play radio click sound locally.
-      TriggerEvent('chatMessage', "RADIO #" .. channel, 3, radioMessage, 5000)
-      randomStatic(true)
-
-      local radioMessage = ""
-      for i = 1, #args do
-        if math.random(50) > 25 then
-          radioMessage = radioMessage .. " " .. args[i]
-        else
-          radioMessage = radioMessage .. " **BZZZ** "
-        end
-      end
-      TriggerServerEvent("radiochatter:server",radioMessage)
-    end
-end)
-
-RegisterNetEvent('radiochatter:client')
-AddEventHandler('radiochatter:client', function(radioMessage,senderid)
-
-    local senderid = tonumber(senderid) 
-    local location = GetEntityCoords(GetPlayerPed(GetPlayerFromServerId(senderid)))
-    local dst = #(GetEntityCoords(PlayerPedId()) - location)
-    activeMessages = activeMessages + 0.1
-    if dst < 5.0 then
-      -- play radio static sound locally.
-      local counter = 350
-      local msgZ = location["z"]+activeMessages
-      if PlayerPedId() ~= GetPlayerPed(GetPlayerFromServerId(senderid)) then
-        randomStatic(false)
-        while counter > 0 and dst < 5.0 do
-          location = GetEntityCoords(GetPlayerPed(GetPlayerFromServerId(senderid)))
-          dst = #(GetEntityCoords(PlayerPedId()) - location)
-          DrawRadioChatter(location["x"],location["y"],msgZ, "Radio Chatter: " .. radioMessage, counter)
-          counter = counter - 1
-          Citizen.Wait(1)
-        end
-      end
-    end
-    activeMessages = activeMessages - 0.1 
-end)
-
-
-RegisterNetEvent('radiochannel')
-AddEventHandler('radiochannel', function(chan)
-  local chan = tonumber(chan)
-  if hasRadio() and chan < 1000 and chan > -1 then
-    radioChannel = chan
-    TriggerEvent("InteractSound_CL:PlayOnOne","radioclick",0.4)
-    -- TriggerEvent('chatMessage', "RADIO CHANNEL " .. radioChannel, 3, "Active", 5000)
-  end
-end)
-
-RegisterNetEvent('canPing')
-AddEventHandler('canPing', function(target)
-  if hasPhone() and not isDead then
-    local crds = GetEntityCoords(PlayerPedId())
-    TriggerServerEvent("requestPing", target, crds["x"],crds["y"],crds["z"])
-  else
-    TriggerEvent("DoLongHudText","You need a phone to use GPS!",2)
-  end
-end)
-
-local pingcount = 0
-local currentblip = 0
-local currentping = { ["x"] = 0.0,["y"] = 0.0,["z"] = 0.0, ["src"] = 0 }
-RegisterNetEvent('allowedPing')
-AddEventHandler('allowedPing', function(x,y,z,src,name)
-  if pingcount > 0 then
-    TriggerEvent("DoLongHudText","Somebody sent you a GPS flag but you already have one in process!",2)
-    return
-  end
-  
-  if hasPhone() and not isDead then
-    pingcount = 5
-    currentping = { ["x"] = x,["y"] = y,["z"] = z, ["src"] = src }
-    while pingcount > 0 do
-      TriggerEvent("DoLongHudText",name .. " has given you a ping location, type /pingaccept to accept",1)
-      Citizen.Wait(5000)
-      pingcount = pingcount - 1
-    end
-  else
-    TriggerEvent("DoLongHudText","Somebody sent you a GPS flag but you have no phone!",2)
-  end
-  pingcount = 0
-  currentping = { ["x"] = 0.0,["y"] = 0.0,["z"] = 0.0, ["src"] = 0 }
-end)
-
-
-RegisterNetEvent("phoneEnabled")
-AddEventHandler("phoneEnabled", function(phoneopensent)
-  phoneopen = phoneopensent
-end)
-
-RegisterNUICallback('sethGps', function(data)
- local house = exports["serenity-housing"]:retrieveHousingTableMapped()
-  for i,k in pairs(house) do
-
-    if k.id == data.hid then
-      if DoesBlipExist(currentblip) then
-        RemoveBlip(currentblip)
-      end
-      currentblip = AddBlipForCoord(k.coords["x"], k.coords["y"], k.coords["z"])
-      SetBlipSprite(currentblip, 40)
-      SetBlipAsShortRange(currentblip, false)
-      BeginTextCommandSetBlipName("STRING")
-      SetBlipColour(currentblip, 4)
-      SetBlipScale(currentblip, 1.2)
-      AddTextComponentString("House GPS")
-      EndTextCommandSetBlipName(currentblip)
-      TriggerEvent("DoLongHudText","House GPS Set to your map.", 1)
-      pingcount = 0
-      Citizen.Wait(60000)
-      if DoesBlipExist(currentblip) then
-        RemoveBlip(currentblip)
-      end
-    end
-  end
+RegisterNetEvent('Tweet')
+AddEventHandler('Tweet', function(handle, data, time)
+    local src = source
+    TriggerClientEvent('addTwat-notify', -1, handle, data.text)
+  exports.ghmattimysql:execute('INSERT INTO tweets (handle, message, attachment, time) VALUES (@handle, @message, @attachment, @time)', {
+      ['handle'] = handle,
+      ['message'] = data.text,
+      ['attachment'] = data.attachment,
+      ['time'] = time
+    }, 
+    function(result)
+  end)
+  local newtwat = { ['handle'] = handle, ['message'] = data.text, ['attachment'] = data.attachment, ['time'] = time}
+  TriggerClientEvent('Client:UpdateTweet', -1, newtwat)
+  TriggerClientEvent('Client:UpdateTweet1', src, newtwat)
  
 end)
 
-RegisterNUICallback('unlockHouses', function(data)
-  print('HID',data.hid, data.status)
-  local hId = data.hid
-  local status = data.status
-  if status == "Unlock" then
-    TriggerEvent('serenity-phone:h-Lock', hId,"Lock")
-  else
-    TriggerEvent('serenity-phone:h-Lock', hId,"Unlock")
-  end
-  TriggerServerEvent('serenity-phone:house:status',hId,status)
-  Wait(200)
-  TriggerEvent('updateHousing')
-end)
-
-RegisterNUICallback('editHousingOwn', function()
-  if exports["serenity-housing"]:canEdit() then
-    TriggerEvent('serenity-housing:edit')
-  else
-    SendNUIMessage({
-      openSection = "noProperty"
-    })
-  end
-end)
-
-RegisterNUICallback('sellOwnHouse', function(data)
-  local price = RPC.execute('serenity-phone:getHousePrice', data.hid)
-end)
-
-RegisterNUICallback('giveAccess', function(data)
-  local complete = RPC.execute('serenity-phone:GiveAccess', data.hid,data.cid)
-  print("GIVE ACCESS",complete)
-  
-    
-  if not complete then
-    TriggerEvent("DoLongHudText", "You already gave a key to this person",2)
-    return
-  end
-  TriggerEvent('DoLongHudText', 'You successfully give a key')
-end)
-
-RegisterNUICallback('houseAccess', function(data)
-  print("DATA HID HERE", data.hid)
-  local access = RPC.execute('serenity-phone:getAccessHouse', data.hid)
-  local data = {
-      {
-        title = "Close",
-        action = "serenity-housing:close_access",
-        key = {},
-    },
-  }
-  local player = {}
-  for i,k in pairs(access) do
-    data[#data + 1] = {
-          title = k.name,
-          description = "House: "..k.house.." CID:"..k.cid,
-          key = {"lockdown"},
-          -- action = "serenity-ui:apartmentsContext"
-          children = {
-            {
-                title = "Remove Key",
-                description = "Remove Access.",
-                params = {k.cid, k.house},
-                action = "serenity-ui:apartmentsContext"
-            }
-          }
-      }
-  end
-  exports["serenity-contexts"]:showContext(data)
-end)
-
-AddEventHandler("serenity-housing:close_access", function()
-  exports["serenity-contexts"]:hideContext()
-end)
-
-AddEventHandler('serenity-ui:apartmentsContext', function(data)
-  RPC.execute("serenity-phone:removeKeys",data[2],data[1])
-  exports["serenity-ui"]:hideContext(data)
-end)
-
-RegisterNetEvent('acceptPing')
-AddEventHandler('acceptPing', function()
-  if pingcount > 0 then
-    if DoesBlipExist(currentblip) then
-      RemoveBlip(currentblip)
-    end
-    currentblip = AddBlipForCoord(currentping["x"], currentping["y"], currentping["z"])
-    SetBlipSprite(currentblip, 280)
-    SetBlipAsShortRange(currentblip, false)
-    BeginTextCommandSetBlipName("STRING")
-    SetBlipColour(currentblip, 4)
-    SetBlipScale(currentblip, 1.2)
-    AddTextComponentString("Accepted GPS Marker")
-    EndTextCommandSetBlipName(currentblip)
-    TriggerEvent("DoLongHudText","Their GPS ping has been marked on the map", 1)
-    TriggerServerEvent("pingAccepted",currentping["src"])
-    pingcount = 0
-    Citizen.Wait(60000)
-    if DoesBlipExist(currentblip) then
-      RemoveBlip(currentblip)
-    end
-  end
-end)
-
-function isRealEstateAgent()
-  if GroupRank("real_estate") > 0 then
-    return true
-  else
-    return false
-  end
-end
-
-function hasDecrypt2()
-    if exports["serenity-inventory"]:hasEnoughOfItem("vpnxj",1,false,true) then
-      return true
-    else
-      return false
-    end
-end
-
-function hasTrucker()
-    if exports["serenity-core"]:getModule("LocalPlayer"):getVar("job") == "trucker"  then
-      return true
-    else
-      return false
-    end
-end
-
-function hasDecrypt()
-    if exports["serenity-inventory"]:hasEnoughOfItem("decrypterenzo",1,false) or exports["serenity-inventory"]:hasEnoughOfItem("decryptersess",1,false) or exports["serenity-inventory"]:hasEnoughOfItem("decrypterfv2",1,false) and not exports["serenity_manager"]:isPed("disabled") or exports["serenity-inventory"]:hasEnoughOfItem(80,1,false) and not exports["serenity_manager"]:isPed("disabled") then
-      return true
-    else
-      return false
-    end
-end
-
-function hasDevice()
-    if exports["serenity-inventory"]:hasEnoughOfItem("mk2usbdevice",1,false) and not exports["serenity_manager"]:isPed("disabled") then
-      return true
-    else
-      return false
-    end
-end
-
-function hasPhone()
-    if
-      (
-      (exports["serenity-inventory"]:hasEnoughOfItem("mobilephone",1,false) or 
-      exports["serenity-inventory"]:hasEnoughOfItem("stoleniphone",1,false) or 
-      exports["serenity-inventory"]:hasEnoughOfItem("stolens8",1,false) or
-      exports["serenity-inventory"]:hasEnoughOfItem("stolennokia",1,false) or
-      exports["serenity-inventory"]:hasEnoughOfItem("stolenpixel3",1,false) or
-      exports["serenity-inventory"]:hasEnoughOfItem("assphone",1,false) or
-      exports["serenity-inventory"]:hasEnoughOfItem("boomerphone",1,false))
-      and not exports["serenity_manager"]:isPed("disabled") and not exports["serenity_manager"]:isPed("handcuffed")
-      ) 
-    then
-      return true
-    else
-      return false
-    end
-end
-
-function hasRadio()
-    if (exports["serenity-inventory"]:hasEnoughOfItem("radio",1,false) or exports["serenity-inventory"]:hasEnoughOfItem("pdradio",1,false)) and not exports["serenity_manager"]:isPed("disabled") then
-      return true
-    else
-      return false
-    end
-end
-
-function openGui()
-
-  if recentopen then
-    return
-  end
-  pPhoneOpen = true
-  if hasPhone() then
-    GiveWeaponToPed(PlayerPedId(), 0xA2719263, 0, 0, 1)
-    guiEnabled = true
-    SetNuiFocus(false,false)
-    SetNuiFocus(true,true)
-
-    local isREAgent = false
-    if isRealEstateAgent() then
-      isREAgent = true
-    end
-
-    local device = false
-    if hasDevice() then
-      device = true
-    end
-
-    local decrypt = false
-    if hasDecrypt() then
-      decrypt = true
-    end
-
-    local decrypt2 = false
-    if hasDecrypt2() then
-      decrypt2 = true
-    end
-
-    local trucker = false
-    if hasTrucker() then
-      trucker = true
-    end 
-    TriggerServerEvent('bank:get:balance')
-   -- local near = exports['serenity-housing']:isNearProperty()
-    local house = RPC.execute("serenity-phone:getHouses")
-    -- print("NEAR HOUSE?",near,json.encode(house))
-    local phoneBGrep = GetResourceKvpString(exports['serenity_manager']:isPed('cid').."-bg")
-
-    if phoneBGrep == " " or phoneBGrep =="" or phoneBGrep == nil then
-      phoneBGrep = "https://i.imgur.com/jwjtesO.png"
-    else
-      phoneBGrep = GetResourceKvpString(exports['serenity_manager']:isPed('cid').."-bg")
-    end
-    SendNUIMessage({
-      openPhone = true,
-      wifiZone = nearWifiZone, 
-      pOpenPhone = true, 
-      hasDevice = device, 
-      hasDecrypt = decrypt, 
-      hasDecrypt2 = decrypt2,
-      hasTrucker = trucker, 
-      bgPhone = phoneBG, 
-      isRealEstateAgent = isREAgent, 
-      playerId = GetPlayerServerId(PlayerId()),
-      wallpaper = phoneBGrep,
-      unrmsg = unReadMsg, 
-      unrTwat = unReadTwt, 
-      unrEmail = unReadEmail, 
-      sanitation = sanitation,
-      housing = house,
-      nearProperty = near
-    })
-    TriggerEvent('phoneEnabled',true)
-    TriggerEvent('animation:sms',true)
-    -- TriggerServerEvent('serenity-phone:grabWallpaper')
-        --TaskStartScenarioInPlace(PlayerPedId(), "CODE_HUMAN_MEDIC_TIME_OF_DEATH", 0, 1)
-        
-    -- If this is the first time we've opened the phone, load all contacts
-    
-    lstContacts = {}
-    TriggerServerEvent('phone:getContacts', exports['serenity_manager']:isPed('cid'))
-    doTimeUpdate()
-  else
-    closeGui()
-    if not exports["serenity_manager"]:isPed("disabled") then
-      TriggerEvent("DoLongHudText","You do not have a phone.",2)
-    else
-      TriggerEvent("DoLongHudText","You cannot use your phone right now.",2)
-    end
-  end
-  recentopen = false
-end
-
-RegisterNUICallback('btnPagerType', function(data, cb)
-  TriggerServerEvent("secondaryjob:ServerReturnDate")
-end)
-local jobnames = {
-  ["taxi"] = "Taxi Driver",
-  ["towtruck"] = "Tow Truck Driver",
-  ["trucker"] = "Delivery Driver",
-}
-
-RegisterNUICallback('newPostSubmit', function(data, cb)
-  if data.advert == "" then
-    TriggerEvent('DoLongHudText', 'You need to put words in fill.',2)
-    return
-  end
-    TriggerServerEvent('phone:updatePhoneJob', data.advert)
-end)
-
-RegisterNUICallback('btnDecrypt', function()
-  TriggerEvent("secondaryjob:accepttask")
-end)
-
-
-function miTrabajo()
-    return exports['serenity_manager']:isPed('job')
-end
-
-RegisterNUICallback('deleteYP', function()
-  TriggerServerEvent('phone:deleteYP')
-end)
-
-RegisterNetEvent("yellowPages:retrieveLawyersOnline")
-AddEventHandler("yellowPages:retrieveLawyersOnline", function()
-  local isFound = false
-  TriggerEvent('chatMessage', "", 2, "Searching for a lawyer...")
-  for i = 1, #YellowPageArray do
-    local job = string.lower(YellowPageArray[tonumber(i)].job)
-    if string.find(job, 'attorney') or string.find(job, 'lawyer') or string.find(job, 'public defender') then
-      isFound = true
-      TriggerEvent('chatMessage', "", 2, "⚖️ " .. YellowPageArray[i].name .. " ☎️ " .. YellowPageArray[i].phonenumber)
-    end
-  end
-  if not isFound then
-    TriggerEvent('chatMessage', "", 2, "There are no lawyers available right now. 😢")
-  end
-end)
-
-
-RegisterNUICallback('notificationsYP', function()
-  TriggerServerEvent('getYP')
-  Citizen.Wait(200)
-  TriggerEvent("YPUpdatePhone")
-end)
-
-
-RegisterNetEvent('YPUpdatePhone')
-AddEventHandler('YPUpdatePhone', function()
-
-  lstnotifications = {}
-
-  for i = 1, #YellowPageArray do
-      lstnotifications[#lstnotifications + 1] = {
-        id = tonumber(i),
-        name = YellowPageArray[tonumber(i)].name,
-        message = YellowPageArray[tonumber(i)].job,
-        phoneNumber = YellowPageArray[tonumber(i)].phonenumber
-      }
-  end
-  SendNUIMessage({openSection = "notificationsYP", list = lstnotifications})
-end)
-
--- Close Gui and disable NUI
-function closeGui()
-  TriggerEvent("closeInventoryGui")
-  SetNuiFocus(false,false)
-  SendNUIMessage({openPhone = false})
-  guiEnabled = false
-  TriggerEvent('animation:sms',false)
-  TriggerEvent('phoneEnabled',false)
-  -- TriggerEvent('serenity-phone:UpdateStatePhone')
-  pPhoneOpen = false
-  recentopen = true
-  Citizen.Wait(3000)
-  recentopen = false
-  insideDelivers = false
-end
-
--- RegisterNetEvent('serenity-phone:UpdateStatePhone')
--- AddEventHandler('serenity-phone:UpdateStatePhone', function()
---     Wait(5)
---     print(callStatus, isCallInProgress)
---     if callStatus == isCallInProgress then 
---       print("PHONE MEDIO 3")
---       SendNUIMessage({openSection = "phonemedio"}) 
---     end
--- end)
-
-function getCardinalDirectionFromHeading()
-  local heading = GetEntityHeading(PlayerPedId())
-  if heading >= 315 or heading < 45 then
-      return "North Bound"
-  elseif heading >= 45 and heading < 135 then
-      return "West Bound"
-  elseif heading >= 135 and heading < 225 then
-      return "South Bound"
-  elseif heading >= 225 and heading < 315 then
-      return "East Bound"
-  end
-end
-
-function closeGui2()
-  SetNuiFocus(false,false)
-  SendNUIMessage({openPhone = false})
-  guiEnabled = false
-  recentopen = true
-  Citizen.Wait(3000)
-  recentopen = false  
-end
-
-local mousenumbers = {
-  [1] = 1,
-  [2] = 2,
-  [3] = 3, 
-  [4] = 4, 
-  [5] = 5, 
-  [6] = 6, 
-  [7] = 12, 
-  [8] = 13, 
-  [9] = 66, 
-  [10] = 67, 
-  [11] = 95, 
-  [12] = 96,   
-  [13] = 97,   
-  [14] = 98,
-  [15] = 169,
-   [16] = 170,
-}
-
-
-
--- Opens our phone
-RegisterNetEvent('phoneGui2')
-AddEventHandler('phoneGui2', function()
-  openGui()
-end)
-
--- NUI Callback Methods
-RegisterNUICallback('close', function(data, cb)
-  closeGui()
-  cb('ok')
-end)
-
-RegisterNetEvent('phone:close')
-AddEventHandler('phone:close', function(number, message)
-  closeGui()
-
-end)
-
-
-
-function testfunc()
-
-end
-RegisterNetEvent("TokoVoip:UpVolume");
-AddEventHandler("TokoVoip:UpVolume", setVolumeUp);
-
-RegisterNetEvent('refreshContacts')
-AddEventHandler('refreshContacts', function()
-  TriggerServerEvent('phone:getContacts', exports['serenity_manager']:isPed('cid'))
-  SendNUIMessage({openSection = "contacts"})
-end)
-
-RegisterNetEvent('refreshYP')
-AddEventHandler('refreshYP', function()
-  if guiEnabled then
-    TriggerServerEvent('getYP')
-    Citizen.Wait(250)
-    TriggerEvent('YPUpdatePhone')
-  end
-end)
-
-
-RegisterNUICallback('refreshContacts', function()
-  TriggerEvent('contacts')
-end)
-
--- Contact Callbacks
-RegisterNUICallback('contacts', function(data, cb)
-  TriggerServerEvent('phone:getSMSc')
-  TriggerServerEvent('phone:getContacts', exports['serenity_manager']:isPed('cid'))
-  SendNUIMessage({openSection = "contacts"})
-  cb('ok')
-end)
-
-RegisterNUICallback('newContact', function(data, cb)
-  SendNUIMessage({openSection = "newContact"})
-  cb('ok')
-end)
-
-RegisterNUICallback('newContactSubmit', function(data, cb)
-  TriggerEvent('phone:addContact', data.name, tonumber(data.number))
-  cb('ok')
-end)
-
-RegisterNUICallback('editContactSubmit', function(data, cb)
-  SendNUIMessage({
-    emptyContacts = true
-  })
-  TriggerServerEvent('phone:editContact', data.name, tonumber(data.number),data.oldName)
-  Wait(100)
-  TriggerServerEvent('phone:getContacts')
-  cb('ok')
-end)
-
-RegisterNUICallback('updateMyWallpaper', function(data, cb)
-  wallPaper = ""
-  Wait(5)
-  TriggerEvent('serenity-phone:grabBackground', data.name .."?auto=compress&cs=tinysrgb&h=350")
-  -- TriggerServerEvent("phone:saveWallpaper",exports['serenity_manager']:isPed('cid'), data.name .."?auto=compress&cs=tinysrgb&h=350")
-  -- SetResourceKvp(exports['serenity_manager']:isPed('cid')"-bg"
-  cb('ok')
-end)
-
-RegisterNUICallback('removeContact', function(data, cb)
-  TriggerServerEvent('phone:removeContact', data.name, data.number)
-  cb('ok')
-end)
-
-
-myID = 0
-mySourceID = 0
-
-mySourceHoldStatus = false
-TriggerEvent('phone:setCallState', isNotInCall)
-costCount = 1
-
-RegisterNetEvent('animation:phonecallstart')
-AddEventHandler('animation:phonecallstart', function()
-  TriggerEvent("destroyPropPhone")
-  TriggerEvent("incall",true)
-  local lPed = PlayerPedId()
-  RequestAnimDict("cellphone@")
-  while not HasAnimDictLoaded("cellphone@") do
-    Citizen.Wait(0)
-  end
-  local count = 0
-  costCount = 1
-  inPhone = false
-  Citizen.Wait(200)
-  ClearPedTasks(lPed)
-  
-  TriggerEvent("attachItemPhone","phone01")
-  -- TriggerEvent("DoLongHudText","[E] Toggles Call.", 6)
-
-
-  while callStatus ~= isNotInCall do
-
-    if isDead then
-      endCall()
-    end
-
-
-    if IsEntityPlayingAnim(lPed, "cellphone@", "cellphone_call_listen_base", 3) and not IsPedRagdoll(PlayerPedId()) then
-    else 
-
-
-
-      if IsPedRagdoll(PlayerPedId()) then
-        Citizen.Wait(1000)
-      end
-      TaskPlayAnim(lPed, "cellphone@", "cellphone_call_listen_base", 1.0, 1.0, -1, 49, 0, 0, 0, 0)
-    end
-    Citizen.Wait(1)
-    count = count + 1
-
-    if IsControlJustPressed(0, 38) then
-      TriggerEvent("phone:holdToggle")
-    end
-
-    if onhold then
-      if count == 800 then
-         count = 0
-        --  TriggerEvent("DoLongHudText","Call On Hold.", 1)
-      end
-    end
-
-      --check if not unarmed
-    local curw = GetSelectedPedWeapon(PlayerPedId())
-    noweapon = `WEAPON_UNARMED`
-    if noweapon ~= curw then
-      SetCurrentPedWeapon(PlayerPedId(), `WEAPON_UNARMED`, true)
-    end
-
-  end
-  ClearPedTasks(lPed)
-  TaskPlayAnim(lPed, "cellphone@", "cellphone_call_out", 2.0, 2.0, 800, 49, 0, 0, 0, 0)
-  Citizen.Wait(700)
-  TriggerEvent("destroyPropPhone")
-  TriggerEvent("incall",false)
-end)
-
--- RegisterNetEvent('phone:makecall')
--- AddEventHandler('phone:makecall', function(pnumber)
---   local pnumber = tonumber(pnumber)
---   if callStatus == isNotInCall and not isDead and hasPhone() then
---     local dialingName = getContactName(pnumber)
---     TriggerEvent('phone:setCallState', isDialing, dialingName)
---     TriggerEvent("animation:phonecallstart")
---     recentcalls[#recentcalls + 1] = { ["type"] = 2, ["number"] = pnumber, ["name"] = dialingName }
---     TriggerServerEvent('phone:callContact', exports['serenity_manager']:isPed('cid'), pnumber, true)
---   else
---     TriggerEvent("It appears you are already in a call, injured or without a phone, please type /hangup to reset your calls.", 2)
---   end
--- end)
-
-
-
-
-local PayPhoneHex = {
-  [1] = 1158960338,
-  [2] = -78626473,
-  [3] = 1281992692,
-  [4] = -1058868155,
-  [5] = -429560270,
-  [6] = -2103798695,
-  [7] = 295857659,
-}
-
-RegisterNetEvent("pass:coords:vehicle")
-AddEventHandler("pass:coords:vehicle", function(plate,coords)
-  -- print(coords,plate)
-  vehSpawnPlate = plate
-  vehCoords = coords
-  local VehicleCoords = coords
-  local car = AddBlipForCoord(VehicleCoords[1],VehicleCoords[2],VehicleCoords[3])
-  SetBlipSprite(car, 225)
-  SetBlipScale(car, 1.2)
-  SetBlipAsShortRange(car, false)
-  BeginTextCommandSetBlipName("STRING")
-  AddTextComponentString("Lost Vehicle")
-  EndTextCommandSetBlipName(car)
-  TriggerEvent("DoLongHudText", "Vehicle marked on the map!")
-  trackVehicle = true
-
-  Citizen.CreateThread(function()
-    while trackVehicle do
-      local dist = #(vector3(VehicleCoords[1],VehicleCoords[2],VehicleCoords[3]) - GetEntityCoords(PlayerPedId()))
-      canSpawnVehs = true
-      canSpawnDist = dist
-      -- spawnStatus = true
-      -- spawnStatus(true)
-      Wait(1000)
-      if dist < 5.0 then
-        RemoveBlip(car)
-        insideTrack = true
-      end
-      if dist > 5.0 and insideTrack then
-        canSpawnVehs = false
-        insideTrack = false
-        return
-      end
-    end
-  end)
-  if displaymarker then
-    print("OK")
-  else
-    print("NOK")
-  end
-end)
-
-function checkForPayPhone()
-  for i = 1, #PayPhoneHex do
-    local objFound = GetClosestObjectOfType( GetEntityCoords(PlayerPedId()), 5.0, PayPhoneHex[i], 0, 0, 0)
-    if DoesEntityExist(objFound) then
-      return true
-    end
-  end
-  return false
-end
-
-AddEventHandler('phone:makepayphonecall', function(pnumber) 
-  if not checkForPayPhone() then
-    TriggerEvent("DoLongHudText","You are not near a payphone.",2)
-    return
-  end
-
-  PhoneBooth = GetEntityCoords( PlayerPedId() )
-  AnonCall = true
-
-  local pnumber = tonumber(pnumber)
-  if callStatus == isNotInCall and not isDead then
-    TriggerEvent('phone:setCallState', isDialing)
-    TriggerEvent("animation:phonecallstart")
-    TriggerEvent("InteractSound_CL:PlayOnOne","payphonestart",0.5)
-    TriggerServerEvent('phone:callContact', exports['serenity_manager']:isPed('cid'), pnumber, false)
-    TriggerServerEvent("phone:RemovePayPhoneMoney")
-  else
-    TriggerEvent("DoLongHudText","It appears you are already in a call, injured or with out a phone, please type /hangup to reset your calls.",2)
-  end
-end)
-
-RegisterNetEvent("payphone:ui")
-AddEventHandler("payphone:ui", function()
-local ph = exports["serenity-applications"]:KeyboardInput({
-  header = "Payphone",
-  rows = {
-    {
-      id = 1,
-      txt = "Number"
-    }
-  }
-})
-if ph then
-  if ph[1].input ~= nil then
-    TriggerEvent("phone:makepayphonecall", ph[1].input)
-  end
-end
-end)
-
---[[ The following happens for regular calls too ]]
-
--- RegisterNUICallback('callContact', function(data, cb)
---   -- closeGui()
---   -- Wait(1500)
---   if callStatus == isNotInCall and not isDead and hasPhone() then
---     local dialingName = getContactName(data.number)
---     SendNUIMessage({
---       openSection = 'callnotify',
---       pCNumber = dialingName
---     })
---     if exports['serenity-phone']:pOpen() == false then 
---       -- print("FUCK THIS SHIT")
---         SendNUIMessage({openSection = "phonemedio"}) 
---     end
---     TriggerEvent('phone:setCallState', isDialing, data.name == "" and data.number or data.name)
---     TriggerEvent("animation:phonecallstart")
---     -- print("FUCK THIS SHIT 2")
---     TriggerServerEvent('phone:callContact', exports['serenity_manager']:isPed('cid'), data.number, true)
---   else
---     TriggerEvent("DoLongHudText","It appears you are already in a call, injured or with out a phone, please type /hangup to reset your calls.",2)
---   end
---   cb('ok')
--- end)
-
-debugn = false
-function t(trace)
-  print(trace)
-end
-
-RegisterNetEvent('phone:failedCall')
-AddEventHandler('phone:failedCall', function()
-    t("Failed Call")
-    endCall()
-end)
-
-
-RegisterNetEvent('phone:hangup')
-AddEventHandler('phone:hangup', function()
-    t("Call Hangup")
-    endCall()
-end)
-
-local callid = 0
-
-RegisterNetEvent('phone:endCalloncommand')
-AddEventHandler('phone:endCalloncommand', function()
-    TriggerServerEvent('phone:EndCall', mySourceID, callid, true)
-    SendNUIMessage({
-      openSection = 'callnotifyEnd'
-    })
-    SendNUIMessage({
-      openSection = 'phonemedioclose'
-    })
-end)
-
-RegisterNetEvent('phone:otherClientEndCall')
-AddEventHandler('phone:otherClientEndCall', function()
-    TriggerEvent("InteractSound_CL:PlayOnOne","demo",0.1)
-    -- TriggerEvent("DoLongHudText", "Your call was ended!", 2)
-    callid = 0
-    myID = 0
-    mySourceID = 0
-    mySourceHoldStatus = false
-    TriggerEvent('phone:setCallState', isNotInCall)
-    onhold = false
-    SendNUIMessage({
-      openSection = 'callnotifyEnd'
-    })
-    SendNUIMessage({
-      openSection = 'phonemedioclose'
-    })
-end)
-
--- RegisterNUICallback('btnAnswer', function()
---     -- closeGui()
---     TriggerEvent("phone:answercall")
--- end)
-
--- RegisterNUICallback('btnHangup', function()
---     -- closeGui()
---     TriggerEvent("phone:hangup")
---     -- print("DADA",mySourceID, callid)
---     TriggerServerEvent('phone:EndCall', mySourceID, callid, true)
---     SendNUIMessage({
---       openSection = 'callnotifyEnd'
---     })
--- end)
-
--- RegisterCommand('answer', function()
---   TriggerEvent("phone:answercall")
--- end)
-
-
-
-RegisterNetEvent('phone:answercall')
-AddEventHandler('phone:answercall', function()
-    if callStatus == isReceivingCall and not isDead then
-    answerCall()
-    TriggerEvent("animation:phonecallstart")
-    TriggerEvent("DoLongHudText","You have answered a call.", 1)
-    callTimer = 0
-  else
-    TriggerEvent("DoLongHudText","You are not being called, injured, or you took too long.", 2)
-  end
-end)
-
-
-RegisterNetEvent('phone:initiateCall')
-AddEventHandler('phone:initiateCall', function(pnumber)
-    TriggerEvent("DoLongHudText","You have started a call.",1)
-    local dialingName = getContactName(pnumber)
-    local pnumber = tonumber(pnumber)
-    recentcalls[#recentcalls + 1] = { ["type"] = 2, ["number"] = pnumber, ["name"] = dialingName }
-    -- print("INITIAL CALL",dialingName,pnumber)
-    initiatingCall(dialingName)
-end)
-
-
-RegisterNetEvent('phone:addToCall')
-AddEventHandler('phone:addToCall', function(voipchannel)
-  exports['serenity-voice']:addPlayerToCall(tonumber(voipchannel))
-  if exports['serenity-phone']:pOpen() == false then
-    print("PHONE MEDIO 2") 
-    SendNUIMessage({openSection = "phonemedio"}) 
-  end
-end)
-
-RegisterNetEvent('phone:callFullyInitiated')
-AddEventHandler('phone:callFullyInitiated', function(srcID,sentSource)
- TriggerEvent("InteractSound_CL:PlayOnOne","demo",0.1)
-  myID = srcID
-  SendNUIMessage({callisAnswer = true})
-  mySourceID = sentSource
-  TriggerEvent('phone:setCallState', isCallInProgress)
-  callTimer = 0
-  TriggerEvent("phone:callactive")
-  
-end)
-
-
-function drawTxt(x,y ,width,height,scale, text, r,g,b,a)
-    SetTextFont(4)
-    SetTextProportional(0)
-    SetTextScale(scale, scale)
-    SetTextColour(r, g, b, a)
-    SetTextDropShadow(0, 0, 0, 0,255)
-    SetTextEdge(2, 0, 0, 0, 255)
-    SetTextDropShadow()
-    SetTextOutline()
-    SetTextEntry("STRING")
-    AddTextComponentString(text)
-    DrawText(x - width/2, y - height/2 + 0.005)
-end
-RegisterNetEvent('phone:callactive')
-AddEventHandler('phone:callactive', function()
-    Citizen.Wait(100)
-    local held1 = false
-    local held2 = false
-    while callStatus == isCallInProgress do
-      local phoneString = ""
-      Citizen.Wait(1)
-
-      if onhold then
-        phoneString = phoneString .. "They are on Hold | "
-        if not held1 then
-          TriggerEvent("DoLongHudText","You have put the caller on hold.",888)
-          held1 = true
-        end
-      else
-        phoneString = phoneString .. "Call Active | "
-        if held1 then
-          TriggerEvent("DoLongHudText","Your call is no longer on hold.",888)
-          held1 = false
-        end
-      end
-
-      if mySourceHoldStatus then
-        phoneString = phoneString .. "You are on hold"
-        if not held2 then
-          TriggerEvent("DoLongHudText","You are on hold.",2)
-          held2 = true
-        end
-      else
-        phoneString = phoneString .. "Caller Active"
-        if held2 then
-          TriggerEvent("DoLongHudText","You are no longer on hold.",2)
-          held2 = false
-        end
-      end
-      drawTxt(0.97, 1.46, 1.0,1.0,0.33, phoneString, 255, 255, 255, 255)  -- INT: kmh
-    end
-end)
-
-
-
-RegisterNetEvent('phone:id')
-AddEventHandler('phone:id', function(sentcallid)
-  callid = sentcallid
-end)
-
-RegisterNetEvent('phone:setCallState')
-AddEventHandler('phone:setCallState', function(pCallState, pCallInfo)
-  callStatus = pCallState
-  SendNUIMessage({
-    openSection = 'callState',
-    callState = pCallState,
-    callInfo = pCallInfo
-  })
-end)
-
-RegisterNetEvent('phone:receiveCall')
-AddEventHandler('phone:receiveCall', function(phoneNumber, srcID, calledNumber)
-  -- print("RECEIVE CALL",phoneNumber, srcID, getContactName(calledNumber))
-  if hasPhone() then
-    local callFrom = getContactName(calledNumber)
-
-    SendNUIMessage({
-      openSection = 'callnotify',
-      pCNumber = callFrom
-    })
-
-    if exports['serenity-phone']:pOpen() == false then 
-      SendNUIMessage({openSection = "phonemedio"}) 
-    end
-    
-    recentcalls[#recentcalls + 1] = { ["type"] = 1, ["number"] = calledNumber, ["name"] = callFrom }
-
-    if callStatus == isNotInCall then
-      myID = 0
-      mySourceID = srcID
-      TriggerEvent('phone:setCallState', isReceivingCall, callFrom)
-
-      receivingCall(callFrom) -- Send contact name if exists, if not send number
-    else
-      TriggerEvent("DoLongHudText","You are receiving a call from " .. callFrom .. " but are currently already in one, sending busy response.",2)
-    end
-  end
-end)
-callTimer = 0
-function initiatingCall(name)
-  callTimer = 8
-  -- TriggerEvent("DoLongHudText","You are making a call, please hold.", 1)
-  -- phoneCallNotification("icall","Calling",name)
-  while (callTimer > 0 and callStatus == isDialing) do
-    TriggerEvent("InteractSound_CL:PlayOnOne","cellcall",0.5)
-    Citizen.Wait(2500)
-    callTimer = callTimer - 1
-  end
-  if callStatus == isDialing or callTimer == 0 then
-    endCall()
-  end
-end
-
-function receivingCall(callFrom)
-  callTimer = 8
-  -- phoneCallNotification("rcall","Calling",callFrom)
-  while (callTimer > 0 and callStatus == isReceivingCall) do
-    if hasPhone() then
-      Citizen.Wait(1)
-      -- TriggerEvent("DoLongHudText","Call from: " .. callFrom .. " /answer | /hangup", 1)
-      if phoneNotifications then
-        TriggerServerEvent('InteractSound_SV:PlayWithinDistance', 2.0, 'cellcall', 0.5)
-      end
-    end
-    Citizen.Wait(2500)
-    callTimer = callTimer - 1
-  end
-  if callStatus ~= isCallInProgress then
-    endCall()
-  end
-end
-
-RegisterNetEvent('serenity-phone:RemoveCall')
-AddEventHandler('serenity-phone:RemoveCall', function()
-    SendNUIMessage({
-      openSection = 'callnotifyEnd'
-    })
-    SendNUIMessage({
-      openSection = 'phonemedioclose'
-    })
-end)
-
-function answerCall()
-
-  if mySourceID ~= 0 then
-
-    --NetworkSetVoiceChannel(mySourceID+1)
-    --NetworkSetTalkerProximity(0.0)
-
-    TriggerServerEvent("phone:StartCallConfirmed",mySourceID)
-    TriggerEvent('phone:setCallState', isCallInProgress)
-    TriggerEvent("phone:callactive")
-  end
-end
-
-RegisterNetEvent('phone:removefromToko')
-AddEventHandler('phone:removefromToko', function(playerRadioChannel)
-  exports['serenity-voice']:removePlayerFromCall()
-end)
-
-function endCall()
-  TriggerEvent("InteractSound_CL:PlayOnOne","demo",0.1)
-  if tonumber(mySourceID) ~= 0 then
-    TriggerServerEvent("phone:EndCall",mySourceID,callid)
-  end
-
-  if tonumber(myID) ~= 0 then
-    TriggerServerEvent("phone:EndCall",myID,callid)
-  end 
-
-  myID = 0
-  mySourceID = 0
-  TriggerEvent('phone:setCallState', isNotInCall)
-  TriggerEvent('serenity-phone:RemoveCall')
-  onhold = false
-  mySourceHoldStatus = false
-  callid = 0
-end
-
-function endCall2()
-  TriggerEvent("InteractSound_CL:PlayOnOne","payphoneend",0.1)
-  if tonumber(mySourceID) ~= 0 then
-    TriggerServerEvent("phone:EndCall",mySourceID,callid)
-  end
-
-  if tonumber(myID) ~= 0 then
-    TriggerServerEvent("phone:EndCall",myID,callid)
-  end 
-
-  myID = 0
-  mySourceID = 0
-  TriggerEvent('phone:setCallState', isNotInCall)
-  onhold = false
-  mySourceHoldStatus = false
-  callid = 0
-  --closeGui()
-  --[[ 
-  NetworkSetTalkerProximity(1.0)
-  Citizen.Wait(300)
-  NetworkClearVoiceChannel()
-  Citizen.Wait(300)
-  NetworkSetTalkerProximity(18.0)
-  ]]
-end
-
-
-RegisterNetEvent('phone:holdToggle')
-AddEventHandler('phone:holdToggle', function()
-  if myID == nil then
-    myID = 0
-  end
-  if myID ~= 0 then
-    if not onhold then
-      TriggerEvent("DoShortHudText", "Call on hold.",10)
-      onhold = true
-
-      --[[  
-      NetworkSetTalkerProximity(1.0)
-      Citizen.Wait(300)
-      NetworkClearVoiceChannel()
-      Citizen.Wait(300)
-      NetworkSetTalkerProximity(18.0)
-      ]]
-
-      TriggerServerEvent("OnHold:Server",mySourceID,true)
-    else
-      TriggerEvent("DoShortHudText", "No longer on hold.",10)
-      TriggerServerEvent("OnHold:Server",mySourceID,false)
-      onhold = false
-
-      --NetworkSetVoiceChannel(myID+1)
-      --NetworkSetTalkerProximity(0.0)
-    end
-  else
-
-    if mySourceID ~= 0 then
-      if not onhold then
-        TriggerEvent("DoShortHudText", "Call on hold.",10)
-        onhold = true
-
-        --[[ 
-        NetworkSetTalkerProximity(1.0)
-        Citizen.Wait(300)
-        NetworkClearVoiceChannel()
-        Citizen.Wait(300)
-        NetworkSetTalkerProximity(18.0)
-        ]]
-
-        TriggerServerEvent("OnHold:Server",mySourceID,true)
-      else
-        TriggerEvent("DoShortHudText", "No longer on hold.",10)
-        TriggerServerEvent("OnHold:Server",mySourceID,false)
-        onhold = false
-
-        --NetworkSetVoiceChannel(mySourceID+1)
-        --NetworkSetTalkerProximity(0.0)
-      end
-    end
-  end
-end)
-
-
-
-RegisterNetEvent('OnHold:Client')
-AddEventHandler('OnHold:Client', function(newHoldStatus,srcSent)
-    mySourceHoldStatus = newHoldStatus
-    if mySourceHoldStatus then
-        local playerId = GetPlayerFromServerId(srcSent)
-        MumbleSetVolumeOverride(playerId, -1.0)
-        -- TriggerEvent("DoLongHudText","You just got put on hold.", 1)
-    else
-        if not onhold then
-          local playerId = GetPlayerFromServerId(srcSent)
-          MumbleSetVolumeOverride(playerId, 1.0)
-        end
-        -- TriggerEvent("DoLongHudText","Your caller is back on the line.", 1)
-    end
-end)
-----------
-
-
-curNotifications = {}
-casinoNotification = {}
-
-RegisterNetEvent('phone:casino_paid')
-AddEventHandler('phone:casino_paid', function(message)
-  if exports['serenity-phone']:pOpen() == false then 
-    SendNUIMessage({openSection = "emailnotify", pEHandle = 'Payment Received.', pEMessages = message})
-    SendNUIMessage({openSection = "phonemedio", timeout = "5200", pOpen = exports['serenity-phone']:pOpen()}) 
-  end
-  casinoNotification[#casinoNotification+1] = { ["name"] = name, ["message"] = message, ['time'] = time }
-end)
-
-RegisterNetEvent('phone:addnotification')
-AddEventHandler('phone:addnotification', function(name, message)
-  TriggerEvent('addUnreadEmail')
-    -- SendNUIMessage({openSection = "emailnotify", pEHandle = 'Email Received.', pEMessages = message})
-    if phasPhone() then
-      phoneNotification("email",message,"Email Received")
-    end
-    curNotifications[#curNotifications+1] = { ["name"] = name, ["message"] = message, ['time'] = time }
-end)
-
-RegisterNetEvent('YellowPageArray')
-AddEventHandler('YellowPageArray', function(pass)
-    local notdecoded = json.encode(pass)
-    YellowPages = notdecoded
-
-    YellowPageArray = pass
-end)
-
-
-function createGeneralAreaBlip(alertX, alertY, alertZ)
-  local genX = alertX + math.random(-50, 50)
-  local genY = alertY + math.random(-50, 50)
-  local alertBlip = AddBlipForRadius(genX,genY,alertZ,75.0) 
-  SetBlipColour(alertBlip,1)
-  SetBlipAlpha(alertBlip,80)
-  SetBlipSprite(alertBlip,9)
-  Wait(60000)
-  RemoveBlip(alertBlip)
-end
-
-local lastTime = 0;
-RegisterNetEvent('phone:triggerPager')
-AddEventHandler('phone:triggerPager', function()
-  local job = exports["serenity_manager"]:isPed("myjob")
-  if job == "doctor" or job == "ems" then
-    local currentTime = GetGameTimer()
-    if lastTime == 0 or lastTime + (5 * 60 * 1000) < currentTime then
-      TriggerServerEvent('InteractSound_SV:PlayWithinDistance', 3.0, 'pager', 0.4)
-      SendNUIMessage({
-        openSection = "newpager"
-      })
-      lastTime = currentTime
-    end
-  end
-end)
-
-
-local customGPSlocations = {
-  [1] = { ["x"] = 484.77066040039, ["y"] = -77.643089294434, ["z"] = 77.600166320801, ["info"] = "Garage A"},
-  [2] = { ["x"] = -331.96115112305, ["y"] = -781.52337646484, ["z"] = 33.964477539063,  ["info"] = "Garage B"},
-  [3] = { ["x"] = -451.37295532227, ["y"] = -794.06591796875, ["z"] = 30.543809890747, ["info"] = "Garage C"},
-  [4] = { ["x"] = 399.51190185547, ["y"] = -1346.2742919922, ["z"] = 31.121940612793, ["info"] = "Garage D"},
-  [5] = { ["x"] = 598.77319335938, ["y"] = 90.707237243652, ["z"] = 92.829048156738, ["info"] = "Garage E"},
-  [6] = { ["x"] = 641.53442382813, ["y"] = 205.42562866211, ["z"] = 97.186958312988, ["info"] = "Garage F"},
-  [7] = { ["x"] = 82.359413146973, ["y"] = 6418.9575195313, ["z"] = 31.479639053345, ["info"] = "Garage G"},
-  [8] = { ["x"] = -794.578125, ["y"] = -2020.8499755859, ["z"] = 8.9431390762329, ["info"] = "Garage H"},
-  [9] = { ["x"] = -669.15631103516, ["y"] = -2001.7552490234, ["z"] = 7.5395741462708, ["info"] = "Garage I"},
-  [10] = { ["x"] = -606.86322021484, ["y"] = -2236.7624511719, ["z"] = 6.0779848098755, ["info"] = "Garage J"},
-  [11] = { ["x"] = -166.60482788086, ["y"] = -2143.9333496094, ["z"] = 16.839847564697, ["info"] = "Garage K"},
-  [12] = { ["x"] = -38.922565460205, ["y"] = -2097.2663574219, ["z"] = 16.704851150513, ["info"] = "Garage L"},
-  [13] = { ["x"] = -70.179389953613, ["y"] = -2004.4139404297, ["z"] = 18.016941070557, ["info"] = "Garage M"},
-  [14] = { ["x"] = -195.1579, ["y"] = -1172.7583, ["z"] = 23.0440, ["info"] = "Garage Impound Lot"},
-  [15] = { ["x"] = 364.27685546875, ["y"] = 297.84490966797, ["z"] = 103.49515533447, ["info"] = "Garage O"},
-  [16] = { ["x"] = -338.31619262695, ["y"] = 266.79782104492, ["z"] = 85.741966247559, ["info"] = "Garage P"},
-  [17] = { ["x"] = 273.66683959961, ["y"] = -343.83737182617, ["z"] = 44.919876098633, ["info"] = "Garage Q"},
-  [18] = { ["x"] = 66.215492248535, ["y"] = 13.700443267822, ["z"] = 69.047248840332, ["info"] = "Garage R"},
-  [19] = { ["x"] = 3.3330917358398, ["y"] = -1680.7877197266, ["z"] = 29.170293807983, ["info"] = "Garage Imports"},
-  [20] = { ["x"] = 286.67013549805, ["y"] = 79.613700866699, ["z"] = 94.362899780273, ["info"] = "Garage S"},
-  [21] = { ["x"] = 211.79, ["y"] = -808.38, ["z"] = 30.833, ["info"] = "Garage T"},
-  [22] = { ["x"] = 447.65, ["y"] = -1021.23, ["z"] = 28.45, ["info"] = "Garage Police Department"},
-  [23] = { ["x"] = 447.65, ["y"] = -1021.23, ["z"] = 28.45, ["info"] = "Garage Paleto PD"},
-  [24] = { ["x"] = -25.59, ["y"] = -720.86, ["z"] = 32.22, ["info"] = "Garage House"},
-}
-
-local loadedGPS = false
-
-RegisterNetEvent('openGPS')
-
-AddEventHandler('openGPS', function(mansions,houses,rented)
-
-  
-
-  SendNUIMessage({openSection = "GPS"})
-
-  if loadedGPS then
-
-    return
-
-  end
-
-  for i = 1, #customGPSlocations do
-
-    SendNUIMessage({openSection = "AddGPSLocation", info = customGPSlocations[i]["info"], house_id = i, house_type = 69})
-
-    Citizen.Wait(1)
-
-  end
-
-
-
-  loadedGPS = true
-
-end)
-
-
+RegisterNetEvent('serenity-phone:twatSendNotification')
+AddEventHandler('serenity-phone:twatSendNotification', function(handle, data, time)
 
-RegisterNetEvent('GPSLocations')
-
-AddEventHandler('GPSLocations', function()
-
-	if GPSblip ~= nil then
-
-		RemoveBlip(GPSblip)
-
-		GPSblip = nil
-
-	end	
-
-	TriggerEvent("GPSActivated",false)
-
-	TriggerEvent("openGPS",robberycoordsMansions,robberycoords,rentedOffices)
-
-end)
-
-
-
-RegisterNUICallback('loadUserGPS', function(data)
-
-     TriggerEvent("GPS:SetRoute",data.house_id,data.house_type)
-
-end)
-
-
-
--- RegisterNUICallback('btnCamera', function()
-
---   SetNuiFocus(true,true)
-
--- end)
-
-
-
-local loadedGPS = false
-
-RegisterNetEvent('openGPS')
-
-AddEventHandler('openGPS', function(mansions,house,rented)
-
-  -- THIS IS FUCKING PEPEGA TOO.....
-
-
-
-
-
-  if loadedGPS then
-
-    SendNUIMessage({openSection = "GPS"})
-
-    return
-
-  end
-
-  local mapLocationsObject = {
-
-    custom = { info = customGPSlocations, houseType = 69 },
-
-    mansions = { info = mansions, houseType = 2 },
-
-    houses = { info = house, houseType = 1 },
-
-    rented = { info = rented, houseType = 3 }
-
-  }
-
-  SendNUIMessage({openSection = "GPS", locations = mapLocationsObject })
-
-  loadedGPS = true
-
-end)
-
-
-
-RegisterNUICallback('loadGPS', function()
-
-  TriggerEvent("GPSLocations")
-
-end)
-
-RegisterNUICallback('pinger', function()
-
-  SendNUIMessage({openSection = "pinger"})
-end)
-
-
-RegisterNUICallback('btnCamera', function()
-  SetNuiFocus(false,false)
-  SetNuiFocus(true,true)
-end)
-
-RegisterNUICallback('notifications', function()
-
-    lstnotifications = {}
-
-    for i = 1, #curNotifications do
-
-        local message2 = {
-          id = tonumber(i),
-          name = curNotifications[tonumber(i)].name,
-          message = curNotifications[tonumber(i)].message
-        }
-
-        lstnotifications[#lstnotifications+1]= message2
-    end
-
-    
-  SendNUIMessage({openSection = "notifications", list = lstnotifications})
-
-end)
-
-
-RegisterNUICallback('btnPagerToggle', function()
-  TriggerEvent("togglePager")
+  local newtwat = { ['handle'] = handle, ['message'] = data, ['time'] = time}
+  TriggerClientEvent('serenity-phone:TwatNotify', -1, newtwat)
 end)
 
-RegisterNetEvent("house:returnKeys")
-AddEventHandler("house:returnKeys", function(pSharedKeys)
-  SendNUIMessage({
-    openSection = "manageKeys",
-    sharedKeys = pSharedKeys
-  })
-end)
-
-
-RegisterNetEvent('phone:deleteSMS')
-AddEventHandler('phone:deleteSMS', function(id)
-  table.remove( lstMsgs, tablefindKeyVal(lstMsgs, 'id', tonumber(id)))
-  phoneMsg("Message Removed!")
-end)
-
-function getContactName(number)
-  if (#lstContacts ~= 0) then
-    for k,v in pairs(lstContacts) do
-      -- print(v)
-      if v ~= nil then
-        if (v.number ~= nil and tonumber(v.number) == tonumber(number)) then
-          return v.name
-        end
-      end
-    end
-  end
 
-  return number
-end
-
-RegisterNetEvent('serenity-spawn:confirm_spawned')
-AddEventHandler('serenity-spawn:confirm_spawned', function()
-  serverSpawn = true
-end)
-
-Citizen.CreateThread(function()
-  while true do
-    Wait(1)
-    if serverSpawn then
-      TriggerServerEvent('phone:getContacts')
-      serverSpawn = false
-    end
-  end
+RegisterNetEvent('Server:GetHandle')
+AddEventHandler('Server:GetHandle', function()
+  local src = source
+local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+local char = user:getCurrentCharacter()
+  fal = "@" .. char.first_name .. "_" .. char.last_name
+  local handle = fal
+  TriggerClientEvent('givemethehandle', src, handle)
+  TriggerClientEvent('updateNameClient', src, char.first_name, char.last_name)
 end)
--- Contact Events
-RegisterNetEvent('phone:loadContacts')
-AddEventHandler('phone:loadContacts', function(contacts)
-  lstContacts = {}
 
-  if (#contacts ~= 0) then
-    for k,v in pairs(contacts) do
-      if v ~= nil then
-        local contact = {
-        }
-        if activeNumbersClient['active' .. tonumber(v.number)] then
-        
-          contact = {
-            name = v.name,
-            number = v.number,
-            activated = 1
-          }
-        else
-    
-          contact = {
-            name = v.name,
-            number = v.number,
-            activated = 0
-          }
-        end
-        lstContacts[#lstContacts+1]= contact
-
-        SendNUIMessage({
-          newContact = true,
-          contact = contact,
-        })
-      end
-    end
-  else
-       SendNUIMessage({
-        emptyContacts = true
-      })
-  end
-end)
+--[[ Contacts stuff ]]
 
 RegisterNetEvent('phone:addContact')
 AddEventHandler('phone:addContact', function(name, number)
-  if(name ~= nil and number ~= nil) then
-    number = tonumber(number)
-    TriggerServerEvent('phone:addContact', name, number)
-  else
-     phoneMsg("You must fill in a name and number!")
-  end
+  local src = source
+local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = user:getCurrentCharacter()
+  local characterId = user:getVar("character").id
+  local handle = handle
+
+  exports.ghmattimysql:execute('INSERT INTO user_contacts (identifier, name, number) VALUES (@identifier, @name, @number)', {
+      ['identifier'] = characterId,
+      ['name'] = name,
+      ['number'] = number
+  }, function(result)
+      TriggerEvent('getContacts', true, src)
+      TriggerClientEvent('refreshContacts', src)
+      TriggerClientEvent('phone:newContact', src, name, number)
+  end)
 end)
 
-RegisterNetEvent('phone:newContact')
-AddEventHandler('phone:newContact', function(name, number)
-  local contact = {
-      name = name,
-      number = number
-  }
-  lstContacts[#lstContacts+1]= contact
+RegisterNetEvent('phone:editContact')
+AddEventHandler('phone:editContact', function(name, number,oldname)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getCurrentCharacter()
+    local characterId = user:getVar("character").id
 
-  SendNUIMessage({
-    newContact = true,
-    contact = contact,
-  })
-  phoneMsg("Contact Saved!")
-  TriggerServerEvent('phone:getContacts', exports['serenity_manager']:isPed('cid'))
-end)
-
-RegisterNetEvent('phone:deleteContact')
-AddEventHandler('phone:deleteContact', function(name, number)
-
-  local contact = {
-      name = name,
-      number = number
-  }
-
-  table.remove( lstContacts, tablefind(lstContacts, contact))
-  
-  SendNUIMessage({
-    removeContact = true,
-    contact = contact,
-  })
-  TriggerEvent('resetPhone')
-
-end)
-
-RegisterNUICallback('removeContact', function(data, cb)
-  TriggerServerEvent('deleteContact', data.name, data.number)
-  cb('ok')
-end)
-
-function tablefind(tab,el)
-  for index, value in pairs(tab) do
-    if value == el then
-      return index
-    end
-  end
-end
-
-function tablefindKeyVal(tab,key,val)
-  for index, value in pairs(tab) do
-    if value ~= nil  and value[key] ~= nil and value[key] == val then
-      return index
-    end
-  end
-end
-
-
-RegisterNetEvent('resetPhone')
-AddEventHandler('resetPhone', function()
-     SendNUIMessage({
-      emptyContacts = true
+    exports.ghmattimysql:execute("SELECT * FROM user_contacts WHERE identifier = @identifier AND name = @name",{
+        ['identifier'] = characterId,
+        ['name'] = oldname
+    },function(user)
+    end)
+    exports.ghmattimysql:execute("UPDATE user_contacts SET name = @name, number = @number WHERE identifier = @identifier AND name = @oldname", {
+        ['identifier'] = tonumber(characterId),
+        ['name'] = name,
+        ['number'] = number,
+        ['oldname'] = oldname
     })
-
 end)
 
-local weather = ""
-RegisterNetEvent("kWeatherSync")
-AddEventHandler("kWeatherSync", function(pWeather)
-  weather = pWeather
+RegisterNetEvent('deleteContact')
+AddEventHandler('deleteContact', function(name, number)
+    local src = source
+	local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getCurrentCharacter()
+    local characterId = user:getVar("character").id
+
+    exports.ghmattimysql:execute('DELETE FROM user_contacts WHERE name = @name AND number = @number LIMIT 1', {
+        ['name'] = name,
+        ['number'] = number
+    }, function (result)
+        TriggerEvent('getContacts', true, src)
+        TriggerClientEvent('refreshContacts', src)
+        TriggerClientEvent('phone:deleteContact', src, name, number)
+    end)
 end)
 
-RegisterNUICallback('getWeather', function(data, cb)
-  SendNUIMessage({openSection = "weather", weather = weather})
-  cb("ok")
+RegisterNetEvent('phone:getContacts')
+AddEventHandler('phone:getContacts', function()
+    local src = source
+	local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getCurrentCharacter()
+    local characterId = user:getVar("character").id
+
+    if (user == nil) then
+        TriggerClientEvent('phone:loadContacts', src, json.encode({}))
+    else
+        local contacts = getContacts(characterId, function(contacts)
+            if (contacts) then
+                TriggerClientEvent('phone:loadContacts', src, contacts)
+            else
+                TriggerClientEvent('phone:loadContacts', src, {})
+            end
+        end)
+    end
 end)
 
-function MyPlayerId()
-  for i=0,256 do
-    if(NetworkIsPlayerActive(i) and GetPlayerPed(i) == PlayerPedId()) then return i end
+function getMessagesBetweenUsers(sender, recipient, callback)
+  exports.ghmattimysql:execute("SELECT id, sender, receiver, message, date FROM user_messages WHERE (receiver = @from OR sender = @from) and (receiver = @to or sender = @to)", {
+  ['from'] = sender,
+  ['to'] = recipient
+  }, function(result) callback(result) end)
+end
+
+function saveSMS(receiver, sender, message, callback)
+  exports.ghmattimysql:execute("INSERT INTO user_messages (`receiver`, `sender`, `message`) VALUES (@receiver, @sender, @msg)",
+  {['receiver'] = tonumber(receiver), ['sender'] = tonumber(sender), ['msg'] = message}, function(rowsChanged)
+      exports.ghmattimysql:execute("SELECT id FROM user_messages WHERE receiver = @receiver AND sender = @sender AND message = @msg",
+  {['receiver'] = tonumber(receiver), ['sender'] = tonumber(sender), ['msg'] = message}, function(result) if callback then callback(result) end end)
+  end)
+end
+
+function getContacts(identifier, callback)
+  exports.ghmattimysql:execute("SELECT name,number FROM user_contacts WHERE identifier = @identifier ORDER BY name ASC", {
+      ['identifier'] = identifier
+  }, function(result) callback(result) end)
+end
+
+RegisterNetEvent('getNM')
+AddEventHandler('getNM', function(pNumber)
+  local src = source
+local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = user:getCurrentCharacter()
+  local characterId = user:getVar("character").id
+  local pNumber = getNumberPhone(characterId)
+  TriggerClientEvent("client:updatePNumber",src,pNumber)
+end)
+
+
+RegisterNetEvent('phone:deleteYP')
+AddEventHandler('phone:deleteYP', function(number)
+  local src = source
+local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local characterId = user:getVar("character").id
+  local myNumber = getNumberPhone(characterId)
+  exports.ghmattimysql:execute('DELETE FROM phone_yp WHERE phoneNumber = @phoneNumber', {
+      ['phoneNumber'] = myNumber
+  }, function (result)
+      TriggerClientEvent('refreshYP', src)
+
+  end)
+end)
+
+--[[ Phone calling stuff ]]
+
+function getNumberPhone(cid)
+  local penis
+  exports.ghmattimysql:execute("SELECT phone_number FROM characters WHERE id = @id", {
+      ['id'] = cid
+  }, function(result)
+      if result[1] ~= nil then
+          penis = result[1].phone_number
+      else
+          penis = nil
+      end
+  end)
+  Wait(200)
+  if penis ~= nil then
+      return penis
+  else
+      return nil
   end
-  return nil
 end
 
-
-
-function Voip(intPlayer, boolSend)
-end
-
-RegisterNetEvent('sendMessagePhoneN')
-AddEventHandler('sendMessagePhoneN', function(phonenumberlol)
-  TriggerServerEvent('message:tome', phonenumberlol)
-
-  local closestPlayer, closestDistance = GetClosestPlayer()
-	if closestPlayer ~= -1 and closestDistance <= 5.0 then
-    TriggerServerEvent('message:inDistanceZone', GetPlayerServerId(closestPlayer), phonenumberlol)
-  else    
+function getIdentifierByPhoneNumber(phone_number)
+  local prick
+  exports.ghmattimysql:execute("SELECT id FROM characters WHERE phone_number = @phone_number", {
+      ['phone_number'] = phone_number
+  }, function(result)
+      if result[1] ~= nil then
+          prick = result[1].id
+      else
+          prick = nil
+      end
+  end)
+  Wait(200)
+  if prick ~= nil then
+      return prick
+  else
+      return nil
   end
-end)
-function GetClosestPlayer()
-	local players = GetPlayers()
-	local closestDistance = -1
-	local closestPlayer = -1
-	local closestPed = -1
-	local ply = PlayerPedId()
-	local plyCoords = GetEntityCoords(ply, 0)
-	if not IsPedInAnyVehicle(PlayerPedId(), false) then
-
-		for index,value in ipairs(players) do
-			local target = GetPlayerPed(value)
-			if(target ~= ply) then
-				local targetCoords = GetEntityCoords(GetPlayerPed(value), 0)
-				local distance = #(vector3(targetCoords["x"], targetCoords["y"], targetCoords["z"]) - vector3(plyCoords["x"], plyCoords["y"], plyCoords["z"]))
-				if(closestDistance == -1 or closestDistance > distance) then
-					closestPlayer = value
-					closestPed = target
-					closestDistance = distance
-				end
-			end
-		end
-		return closestPlayer, closestDistance, closestPed
-	end
 end
+
+-- RegisterServerEvent('ReturnHouseKeys')
+-- AddEventHandler('ReturnHouseKeys', function(cid)
+--   local src = source
+--   local houses = {}
+--   local shared = {}
+--   exports.ghmattimysql:execute("SELECT * FROM __housedata WHERE cid= ? ", {cid}, function(chicken)
+--       for k, v in pairs(chicken) do
+--           if v ~= nil then
+--               if v.housename ~= nil then
+--                   local random = math.random(1111,9999)
+--                   houses[random] = {}
+--                   table.insert(houses[random], {["house_name"] = v.housename, ["house_model"] = v.house_model, ["house_id"] = v.house_id, ["days"]= v.days, ["overall"] = v.overall, ["payments"] = v.payments, ["amountdue"] = v.due})
+--                   TriggerClientEvent('returnPlayerKeys', src, houses, shared)
+--               end
+--           end
+--       end
+--   end)
+--   exports.ghmattimysql:execute('SELECT * FROM __housekeys WHERE `cid`= ?', {cid}, function(returnData)
+--       for k, r in pairs(returnData) do
+--           if r ~= nil then
+--               if r.housename ~= nil then
+--                   local random = math.random(1111,9999)
+--                   shared[random] = {}
+--                   table.insert(shared[random], {["house_name"] = r.housename, ["house_model"] = r.house_model, ["house_id"] = r.house_id})
+--                  TriggerClientEvent('returnPlayerKeys', src, houses, shared)
+--               end
+--           end
+--       end
+--   end)
+-- end)
+
+
+local recentPing = 0
+RegisterNetEvent('phone:ping:request')
+AddEventHandler('phone:ping:request', function(targetId, coords, is_anon)
+    
+    local pSrc = source
+	local user = exports["serenity-core"]:getModule("Player"):GetUser(pSrc)
+	local char = user:getCurrentCharacter()
+    local name
+    if is_anon then
+        name = "Anonymous"
+    else
+        name = char.first_name .. " " .. char.last_name
+    end
+    
+	if targetId ~= nil then
+        -- print(targetId, coords, is_anon,pSrc)
+        if targetId:lower() == 'accept' then
+            TriggerClientEvent('serenity-ping:client:AcceptPing', pSrc)
+        elseif targetId:lower() == 'reject' then
+            TriggerClientEvent('serenity-ping:client:RejectPing', pSrc)
+        else
+            local tSrc = tonumber(targetId)
+            if recentPing == 0 then
+                recentPing = 60
+                if pSrc ~= tSrc then
+                    TriggerClientEvent('phone:ping:receive', targetId, coords, pSrc, name)
+                else
+                    TriggerClientEvent('DoLongHudText', pSrc, 'Can\'t Ping Yourself', 2)
+                end
+            else
+                TriggerClientEvent('DoLongHudText', pSrc, 'You need to wait '..tonumber(recentPing).." secs to send ping again.", 2)
+            end
+        end
+    end
+    -- local src = source
+    -- print(targetId, coords, is_anon,src)
+    -- -- if tonumber(src) == tonumber(targetId) then
+    -- --     TriggerClientEvent('DoLongHudText', src, "You can't ping yourself!",2)
+    -- -- else
+    --     TriggerClientEvent('phone:ping:receive', tonumber(targetId), coords, src, name, is_anon)
+    -- -- end
+end)
 
 Citizen.CreateThread(function()
-  while true do
-      if nearWifiZone then
+    while true do
         Wait(1000)
-          SendNUIMessage({wifiZone = nearWifiZone, materials = materials})
-      else
-        Wait(1000)
-        SendNUIMessage({wifiZone = nearWifiZone})
+        if recentPing > 0  then
+            recentPing = (recentPing - 1)
+            if recentPing == 0 then
+                recentPing = 0
+            end
+        end
+    end
+end)
+
+RegisterServerEvent('requestPing')
+AddEventHandler('requestPing', function(target, x,y,z, pIsAnon)
+  local src = source
+  TriggerClientEvent('AllowedPing', tonumber(target), x,y,z, src, name, pIsAnon)
+end)
+
+RegisterServerEvent('pingAccepted')
+AddEventHandler('pingAccepted', function(target)
+  local target = tonumber(target)
+  TriggerClientEvent('notification', target, "You ping was accepted!", 5)
+end)
+
+RegisterServerEvent('pingDeclined')
+AddEventHandler('pingDeclined', function(target)
+  local target = tonumber(target)
+  TriggerClientEvent('notification', target, "You ping was declined!", 5)
+end)
+
+
+-- RegisterNetEvent('phone:callContact')
+-- AddEventHandler('phone:callContact', function(cid, targetnumber, toggle)
+--   local src = source
+--   local targetid = 0
+--   local targetIdentifier = getIdentifierByPhoneNumber(targetnumber)
+--   local srcPhone = getNumberPhone(cid)
+
+--   if not toggle then
+--     TriggerClientEvent('phone:initiateCall', src,targetnumber)
+--     TriggerClientEvent('phone:makecall', src, targetnumber)
+--       for _, player in ipairs(GetPlayers()) do
+--           local user = exports["serenity-core"]:getModule("Player"):GetUser(tonumber(player))
+--           local char = user:getVar("character")
+--           if char.id == targetIdentifier then
+--               TriggerClientEvent('phone:receiveCall', tonumber(player), targetnumber, src, getPhoneRandomNumber())
+--           end
+--       end
+--   else
+--     TriggerClientEvent('phone:initiateCall', src,targetnumber)
+--     TriggerClientEvent('phone:makecall', src, targetnumber)
+      
+--       for _, player in ipairs(GetPlayers()) do
+--           local user = exports["serenity-core"]:getModule("Player"):GetUser(tonumber(player))
+--           local char = user:getVar("character")
+--           if char.id == targetIdentifier then
+--               TriggerClientEvent('phone:receiveCall', tonumber(player), targetnumber, src, srcPhone)
+--           end
+--       end
+--   end
+-- end)
+
+RegisterNetEvent('phone:messageSeen')
+AddEventHandler('phone:messageSeen', function(id)
+  id = tonumber(id)
+  if id ~= nil then
+      exports.ghmattimysql:execute("UPDATE user_messages SET isRead = 1 WHERE id = @id", {['id'] = tonumber(id)})
+  end
+end)
+
+
+
+function ReverseTable(t)
+  local reversedTable = {}
+  local itemCount = #t
+  for k, v in ipairs(t) do
+      reversedTable[itemCount + 1 - k] = v
+  end
+  return reversedTable
+end
+
+RegisterServerEvent('phone:getServerTime')
+AddEventHandler('phone:getServerTime', function()
+  local src= source
+  TriggerClientEvent('phone:setServerTime', src, os.date('%H:%M:%S', os.time()))
+end)
+
+-- RegisterNetEvent('phone:StartCallConfirmed')
+-- AddEventHandler('phone:StartCallConfirmed', function(mySourceID)
+--   local channel = math.random(10000, 99999)
+--   local src = source
+
+--   TriggerClientEvent('phone:callFullyInitiated', mySourceID, mySourceID, src)
+--   TriggerClientEvent('phone:callFullyInitiated', src, src, mySourceID)
+
+--   TriggerClientEvent('phone:addToCall', source, channel)
+--   TriggerClientEvent('phone:addToCall', mySourceID, channel)
+
+--   TriggerClientEvent('phone:id', src, channel)
+--   TriggerClientEvent('phone:id', mySourceID, channel)
+-- end)
+
+
+-- RegisterNetEvent('phone:EndCall')
+-- AddEventHandler('phone:EndCall', function(mySourceID, stupidcallnumberidk, somethingextra)
+--   local src = source
+--   TriggerClientEvent('phone:removefromToko', source, stupidcallnumberidk)
+
+--   if mySourceID ~= 0 or mySourceID ~= nil then
+--       TriggerClientEvent('phone:removefromToko', mySourceID, stupidcallnumberidk)
+--       TriggerClientEvent('phone:otherClientEndCall', mySourceID)
+--   end
+
+--   if somethingextra then
+--       TriggerClientEvent('phone:otherClientEndCall', src)
+--   end
+-- end)
+
+function getPlayerID(source)
+  local identifiers = GetPlayerIdentifiers(source)
+  local player = getIdentifiant(identifiers)
+  return player
+end
+function getIdentifiant(id)
+  for _, v in ipairs(id) do
+      return v
+  end
+end
+
+AddEventHandler('playerSpawned',function(source)
+  local sourcePlayer = tonumber(source)
+  local identifier = getPlayerID(source)
+  getOrGeneratePhoneNumber(sourcePlayer, identifier, function (myPhoneNumber)
+  end)
+end)
+
+function getOrGeneratePhoneNumber (sourcePlayer, identifier, cb)
+  local sourcePlayer = sourcePlayer
+  local identifier = identifier
+  local user = exports["serenity-core"]:getModule("Player"):GetUser(sourcePlayer)
+  local char = user:getVar("character")
+  local myPhoneNumber = getNumberPhone(char.id)
+  if myPhoneNumber == '0' or myPhoneNumber == nil then
+      repeat
+          myPhoneNumber = getPhoneRandomNumber()
+          local id = getIdentifierByPhoneNumber(myPhoneNumber)
+      until id == nil
+      exports.ghmattimysql:execute("UPDATE users SET phone_number = @myPhoneNumber WHERE identifier = @identifier", {
+          ['myPhoneNumber'] = myPhoneNumber,
+          ['identifier'] = identifier
+      }, function ()
+          cb(myPhoneNumber)
+      end)
+  else
+      cb(myPhoneNumber)
+  end
+end
+
+function getPhoneRandomNumber()
+  local numBase0 = 4
+  local numBase1 = 15
+  local numBase2 = math.random(100,999)
+  local numBase3 = math.random(1000,9999)
+  local num = string.format(numBase0 .. "" .. numBase1 .. "" .. numBase2 .. "" .. numBase3)
+  return num
+end
+
+RegisterNetEvent('phone:getServerTime')
+AddEventHandler('phone:getServerTime', function()
+  local hours, minutes, seconds = Citizen.InvokeNative(0x50C7A99057A69748, Citizen.PointerValueInt(), Citizen.PointerValueInt(), Citizen.PointerValueInt())
+  TriggerClientEvent('timeheader', -1, tonumber(hours), tonumber(minutes))
+end)
+
+--[[ Yellow Pages ]]
+
+RegisterNetEvent('getYP')
+AddEventHandler('getYP', function()
+  local source = source
+  exports.ghmattimysql:execute('SELECT * FROM phone_yp LIMIT 30', {}, function(yp)
+      local deorencoded = json.encode(yp)
+      TriggerClientEvent('YellowPageArray', -1, yp)
+      TriggerClientEvent('YPUpdatePhone', source)
+  end)
+end)
+
+RegisterNetEvent('phone:updatePhoneJob')
+AddEventHandler('phone:updatePhoneJob', function(advert)
+  --local handle = handle
+  local src = source
+local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = user:getCurrentCharacter()
+  local mynumber = char.phone_number
+
+  fal = char.first_name .. " " .. char.last_name
+
+  exports.ghmattimysql:execute('INSERT INTO phone_yp (name, job, phoneNumber) VALUES (@name, @job, @phoneNumber)', {
+      ['name'] = fal,
+      ['job'] = advert,
+      ['phoneNumber'] = mynumber
+  }, function(result)
+      TriggerClientEvent('refreshYP', src)
+  end)
+end)
+
+RegisterNetEvent('deleteAllYP')
+AddEventHandler('deleteAllYP', function()
+  local src = source
+  exports.ghmattimysql:execute('DELETE FROM phone_yp', {}, function (result) end)
+end)
+
+RegisterNetEvent('deleteAllTweets')
+AddEventHandler('deleteAllTweets', function()
+  local src = source
+  exports.ghmattimysql:execute('DELETE FROM tweets', {}, function (result) end)
+end)
+
+--Racing
+local BuiltMaps = {}
+local Races = {}
+
+RegisterServerEvent('racing-global-race')
+AddEventHandler('racing-global-race', function(map, laps, counter, reverseTrack, uniqueid, cid, raceName, startTime, mapCreator, mapDistance, mapDescription, street1, street2)
+  Races[uniqueid] = { 
+      ["identifier"] = uniqueid, 
+      ["map"] = map, 
+      ["laps"] = laps,
+      ["counter"] = counter,
+      ["reverseTrack"] = reverseTrack, 
+      ["cid"] = cid, 
+      ["racers"] = {}, 
+      ["open"] = true, 
+      ["raceName"] = raceName, 
+      ["startTime"] = startTime, 
+      ["mapCreator"] = mapCreator, 
+      ["mapDistance"] = mapDistance, 
+      ["mapDescription"] = mapDescription,
+      ["raceComplete"] = false
+  }
+
+  TriggerEvent('racing:server:sendData', uniqueid, -1, 'event', 'open')
+  local waitperiod = (counter * 1000)
+  Wait(waitperiod)
+  Races[uniqueid]["open"] = false
+  -- if(math.random(1, 10) >= 5) then
+  --     TriggerEvent("dispatch:svNotify", {
+  --         dispatchCode = "10-94",
+  --         firstStreet = street1,
+  --         secondStreet = street2,
+  --         origin = {
+  --             x = BuiltMaps[map]["checkpoints"][1].x,
+  --             y = BuiltMaps[map]["checkpoints"][1].y,
+  --             z = BuiltMaps[map]["checkpoints"][1].z
+  --         }
+  -- })
+  -- end
+  TriggerEvent('racing:server:sendData', uniqueid, -1, 'event', 'close')
+end)
+
+RegisterServerEvent('racing-join-race')
+AddEventHandler('racing-join-race', function(identifier)
+  local src = source
+  local player = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = player:getCurrentCharacter()
+  local cid = char.id
+  local playername = ""..char.first_name.." "..char.last_name..""
+  Races[identifier]["racers"][cid] = {["name"] = PlayerName, ["cid"] = cid, ["total"] = 0, ["fastest"] = 0 }
+  TriggerEvent('racing:server:sendData', identifier, src, 'event')
+end)
+
+RegisterServerEvent('race:completed2')
+AddEventHandler('race:completed2', function(fastestLap, overall, sprint, identifier)
+  local src = source
+  local player = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = player:getCurrentCharacter()
+  local cid = char.id
+--   print("MY CID",char.id)
+  local playername = ""..char.first_name.." "..char.last_name..""
+  Races[identifier]["racers"][cid] = { ["name"] = PlayerName, ["cid"] = cid, ["total"] = overall, ["fastest"] = fastestLap}
+  Races[identifier].sprint = sprint
+  TriggerEvent('racing:server:sendData', identifier, -1, 'event')
+
+  if not Races[identifier]["raceComplete"] then
+      exports.ghmattimysql:execute("UPDATE racing_tracks SET races = races+1 WHERE id = '"..tonumber(Races[identifier].map).."'", function(results)
+          if results.changedRows > 0 then
+              Races[identifier]["raceComplete"] = true
+          end
+      end)
+  end
+
+  if(Races[identifier].sprint and Races[identifier]["racers"][cid]["total"]) then
+      exports.ghmattimysql:execute("UPDATE racing_tracks SET fastest_sprint = "..tonumber(Races[identifier]["racers"][cid]["total"])..", fastest_sprint_name = '"..tostring(PlayerName).."' WHERE id = "..tonumber(Races[identifier].map).." and (fastest_sprint IS NULL or fastest_sprint > "..tonumber(Races[identifier]["racers"][cid]["total"])..")", function(results)
+          if results.changedRows > 0 then
+          end
+      end)
+  else
+      exports.ghmattimysql:execute("UPDATE racing_tracks SET fastest_lap = "..tonumber(Races[identifier]["racers"][cid]["fastest"])..", fastest_name = '"..tostring(PlayerName).."' WHERE id = "..tonumber(Races[identifier].map).." and (fastest_lap IS NULL or fastest_lap > "..tonumber(Races[identifier]["racers"][cid]["fastest"])..")", function(results)
+          if results.changedRows > 0 then
+          end
+      end)
+  end
+end)
+
+
+RegisterServerEvent("racing:server:sendData")
+AddEventHandler('racing:server:sendData', function(pEventId, clientId, changeType, pSubEvent)
+  local dataObject = {
+      eventId = pEventId, 
+      event = changeType,
+      subEvent = pSubEvent,
+      data = {}
+  }
+  if (changeType =="event") then
+      dataObject.data = (pEventId ~= -1 and Races[pEventId] or Races)
+  elseif (changeType == "map") then
+      dataObject.data = (pEventId ~= -1 and BuiltMaps[pEventId] or BuiltMaps)
+  end
+  TriggerClientEvent("racing:data:set", -1, dataObject)
+end)
+
+function buildMaps(subEvent)
+  local src = source
+  subEvent = subEvent or nil
+  BuiltMaps = {}
+  exports.ghmattimysql:execute("SELECT * FROM racing_tracks", {}, function(result)
+      for i=1, #result do
+          local correctId = tostring(result[i].id)
+          BuiltMaps[correctId] = {
+              checkpoints = json.decode(result[i].checkpoints),
+              track_name = result[i].track_name,
+              creator = result[i].creator,
+              distance = result[i].distance,
+              races = result[i].races,
+              fastest_car = result[i].fastest_car,
+              fastest_name = result[i].fastest_name,
+              fastest_lap = result[i].fastest_lap,
+              fastest_sprint = result[i].fastest_sprint, 
+              fastest_sprint_name = result[i].fastest_sprint_name,
+              description = result[i].description
+          }
+      end
+      local target = -1
+      if(subEvent == 'mapUpdate') then
+          target = src
+      end
+      TriggerEvent('racing:server:sendData', -1, target, 'map', subEvent)
+  end)
+end
+
+RegisterServerEvent('racing-build-maps')
+AddEventHandler('racing-build-maps', function()
+  buildMaps('mapUpdate')
+end)
+
+RegisterServerEvent('racing-map-delete')
+AddEventHandler('racing-map-delete', function(deleteID)
+  exports.ghmattimysql.execute("DELETE FROM racing_tracks WHERE id = @id", {
+      ['id'] = deleteID })
+  Wait(1000)
+  buildMaps()
+end)
+
+RegisterServerEvent('racing-retreive-maps')
+AddEventHandler('racing-retreive-maps', function()
+  local src = source
+  buildMaps('noNUI', src)
+end)
+
+RegisterServerEvent('racing-save-map')
+AddEventHandler('racing-save-map', function(currentMap,name,description,distanceMap)
+  local src = source
+  local player = exports['serenity-core']:getModule("Player"):GetUser(src)
+  local char = player:getCurrentCharacter()
+  local playername = char.first_name .." ".. char.last_name
+
+  -- exports.ghmattimysql:execute("INSERT INTO racing_tracks_new ('checkpoints', 'creator', 'track_name', 'distance', 'description') VALUES (@currentMap, @creator, @trackname, @distance, @description)",
+  -- {['currentMap'] = json.encode(currentMap), ['creator'] = playername, ['trackname'] = name, ['distance'] = distanceMap, ['description'] = description})
+
+  exports.ghmattimysql:execute("INSERT INTO `racing_tracks` (`checkpoints`, `creator`, `track_name`, `distance`, `description`) VALUES ('"..json.encode(currentMap).."', '"..tostring(playername).."', '"..tostring(name).."', '"..distanceMap.."',  '"..description.."')", function(results)
+      Wait(1000)
+      buildMaps()
+  end)
+end)
+
+RegisterServerEvent('phone:RemovePayPhoneMoney')
+AddEventHandler('phone:RemovePayPhoneMoney', function()
+  local src = source
+local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  user:removeMoney(25)
+end)
+
+RegisterServerEvent('phone:RemovePhoneJobSourceSend')
+AddEventHandler('phone:RemovePhoneJobSourceSend', function(srcsent)
+  local src = srcsent
+  for i = 1, #YellowPageArray do
+      if YellowPageArray[i]
+      then 
+        local a = tonumber(YellowPageArray[i]["src"])
+        local b = tonumber(src)
+
+        if a == b then
+          table.remove(YellowPageArray,i)
+        end
       end
   end
+  TriggerClientEvent("YellowPageArray", -1 , YellowPageArray)
 end)
 
-function getBuying()
-  return materials
-end
-exports('getBuying', getBuying)
-
-connectedWifi = false
-RegisterNUICallback('connectWifi', function(data, cb)
-  connectedWifi = true
-    SendNUIMessage({
-      darkMarket = true
-    })
+RegisterNetEvent('phone:deleteYP')
+AddEventHandler('phone:deleteYP', function(number)
+  local src = source
+  local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = user:getCurrentCharacter()
+  local cid = char.id
+  local mynumber = getNumberPhone(cid)
+  exports.ghmattimysql:execute('DELETE FROM phone_yp WHERE phoneNumber = @phoneNumber', {
+      ['@phoneNumber'] = mynumber
+  }, function (result)
+      TriggerClientEvent('refreshYP', src)
+  end)
 end)
 
-AddEventHandler("serenity-polyzone:enter", function(zone, data)
-  if zone == "wifi1" then
-    nearWifiZone = true
-    materials = zone
-  elseif zone == "wifi2" then
-    nearWifiZone = true
-    materials = zone
-  elseif zone == "wifi3" then
-    nearWifiZone = true
-    materials = zone
-  elseif zone == "wifi4" then
-    nearWifiZone = true
-    materials = zone
-  elseif zone == "wifi5" then
-    nearWifiZone = true
-    materials = zone
-  elseif zone == "wifi6" then
-    nearWifiZone = true
-    materials = zone
-  elseif zone == "wifi7" then
-    nearWifiZone = true
-    materials = zone
-  end
+RegisterNetEvent('serenity-phone:fireEmp')
+AddEventHandler('serenity-phone:fireEmp', function(id,job,name)
+  local src = source
+  local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = user:getCurrentCharacter()
+  local cid = char.id
+  local mynumber = getNumberPhone(cid)
+  exports.ghmattimysql:execute('DELETE FROM character_passes WHERE cid = @cid AND pass_type = @pass_type', {
+      ['@cid'] = id,
+      ['@pass_type'] = job
+  }, function (result)
+      TriggerClientEvent('DoLongHudText', src, 'You Fired '..name,2)
+  end)
 end)
 
-AddEventHandler("serenity-polyzone:exit", function(zone)
-  if zone == "wifi1" or zone == "wifi2" or zone == "wifi3" or zone == "wifi4" or zone == "wifi5" or zone == "wifi6" or zone == "wifi7" then
-     nearWifiZone = false
-     connectedWifi = false
-     SendNUIMessage({darkMarket = false})
-  end
+RegisterServerEvent("stocks:clientvalueupdate")
+AddEventHandler("stocks:clientvalueupdate", function(table)
+    serverstockvalues = table
 end)
 
-RegisterNUICallback('jobcenter-setgps', function(data)
+-- RegisterServerEvent("stocks:retrieve")
+-- AddEventHandler("stocks:retrieve", function()
+--     local src = source
+--     local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+--     local char = user:getCurrentCharacter()
 
-  if data.item == "sanitation" then
-    SetNewWaypoint(-336.21273803711, -1533.8173828125)
-    TriggerEvent("DoLongHudText", "Setting GPS")
-  elseif data.item == "fishing" then
-    SetNewWaypoint(1301.1343994141,4319.1103515625)
-    TriggerEvent("DoLongHudText", "Setting GPS")
-  elseif data.item == "poultry" then
-    SetNewWaypoint(2387.9135742188,5046.1362304688)
-    TriggerEvent("DoLongHudText", "Setting GPS")
-  elseif data.item == "hunting" then
-    SetNewWaypoint(-692.23541259766, 5833.5258789063)
-    TriggerEvent("DoLongHudText", "Setting GPS")
-  elseif data.item == "mining" then
-    SetNewWaypoint(-605.2197265625, 2110.3420410156)
-    TriggerEvent("DoLongHudText", "Setting GPS")
-  end
-  
-  if data.item == "oxy" then
-    TriggerServerEvent("serenity-deliveries:JobCenter")
-  elseif data.item == "chopshop" then
-    TriggerServerEvent("serenity-chopshop:JobCenter")
-  end
-
-end)
-
--- RegisterCommand('phone', function(source,args)
---   print('PHONE')
---   SendNUIMessage({
---     openSection = "android"
---   })
+--     exports.ghmattimysql:execute("SELECT stocks FROM characters WHERE id = @id", {['id'] = char.id}, function(result)
+--         if result[1].stocks then
+--         TriggerClientEvent("stocks:clientvalueupdate", src, json.decode(result[1].stocks))
+--         end
+--     end)
 -- end)
 
--- RegisterCommand('house', function()
---   local isComplete, propertyID, dist, zone = Housing.func.findClosestProperty()
---   print("HOUSING",isComplete, propertyID, dist, zone)
+-- RegisterServerEvent("phone:stockTradeAttempt")
+-- AddEventHandler("phone:stockTradeAttempt", function(index, id, sending)
+--     local src = source
+--     local user = exports["serenity-core"]:getModule("Player"):GetUser(tonumber(id))
+--     local char = user:getCurrentCharacter()
+
+--     if user ~= nil then
+--         TriggerClientEvent("Crypto:GivePixerium", id, sending)
+--     end
 -- end)
 
-RegisterNUICallback('checkHouse', function()
-  TriggerEvent('serenity-housing:phone:check')
+RegisterServerEvent('phone:triggerPager')
+AddEventHandler('phone:triggerPager', function()
+  TriggerClientEvent('phone:triggerPager', -1)
 end)
 
-RegisterNUICallback('editHouse', function()
-  print("EDITING")
-  TriggerEvent('serenity-housing:phone:check', "edit")
+RegisterNetEvent('message:tome')
+AddEventHandler('message:tome', function(messagehueifh)
+  local src = source		
+  local first = messagehueifh:sub(1, 3)
+  local second = messagehueifh:sub(4, 6)
+  local third = messagehueifh:sub(7, 11)
+
+  local msg = first .. "-" .. second .. "-" .. third
+  TriggerClientEvent('chatMessage', src, 'Phone Number ', 4, msg)
 end)
 
-RegisterNUICallback('sellsHouse', function()
-  print("EDITING")
-  TriggerEvent('serenity-housing:phone:check', "edit")
+RegisterNetEvent('message:inDistanceZone')
+AddEventHandler('message:inDistanceZone', function(somethingsomething, messagehueifh)
+  local src = source		
+  local first = messagehueifh:sub(1, 3)
+  local second = messagehueifh:sub(4, 6)
+  local third = messagehueifh:sub(7, 11)
+
+  local msg = first .. "-" .. second .. "-" .. third
+  TriggerClientEvent('chatMessage', somethingsomething, 'Phone Number ', 4, msg)
 end)
 
-AddEventHandler('serenity-phone:sentHouse', function(hasPrice,id,street,price,category)
-  print("SENT HOUSE",isRealEstateAgent(),id,street,price)
-  SendNUIMessage({
-    openSection = "nearHouse",
-    realtor = isRealEstateAgent(),
-    hasPrice = hasPrice,
-    id = id,
-    street = street,
-    price = price,
-    category = category,
-  })
-end)
+RegisterCommand("pnum", function(source, args, rawCommand)
+  local src = source
+  local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = user:getVar("character")
+  local srcPhone = getNumberPhone(char.id)
+  TriggerClientEvent('sendMessagePhoneN', src, srcPhone)
+end, false)
 
-AddEventHandler('serenity-phone:editingHouse', function(id,street,price)
-  print("EDITING HERE")
-  SendNUIMessage({
-    openSection = "sellsHouse",
-    id = id,
-    street = street,
-    price = price,
-  })
-end)
 
-RegisterNUICallback('purchaseHouse', function(data)
-  print('DATa',data.name,data.price)
-  if rentEnabled then
-     print("can purchase")
-    --  TriggerEvent('serenity-housing:buyed')
-    --  action = "serenity-housing:buyed",
-    --         key = { 
-    --             propertyId = pPropertyId, 
-    --             total = total, 
-    --             tax = taxPercent, 
-    --             seller = pSeller
-    --         },
-     return
-  end
-  TriggerEvent('DoLongHudText','Purchasing is not enabled for this house',2)
-
-end)
-
-AddEventHandler('serenity-phone:noProperty', function()
-  SendNUIMessage({
-    openSection = "noProperty"
-  })
-end)
-
-RegisterNUICallback('editHousePrice', function(data)
-  TriggerServerEvent('serenity-housing:editPrice', data.hid,data.price)
-end)
-
-AddEventHandler('serenity-phone:EnableSellRent', function()
-    exports['serenity-ui']:openApplication('textbox', {
-    callbackUrl = 'serenity-phone:SellRentEnable',
-    -- params = {key = pParams.propertyId},
-    key = 1,
-    items = {
-        {
-          icon = "fa-id-card",
-          label = "Paypal (Enabled Sell/Rent)",
-          name = "sell",
-        },
-    },
-    show = true
-  })
-end)
-
-RegisterUICallback("serenity-phone:SellRentEnable", function(data, cb)
-  -- print('THIS IS ENABLED RENT/SALE FOR PLAYER', data[1].value,json.encode(data))
-  TriggerServerEvent('serenity-housing:rent_activate_sv', data[1].value)
-  exports["serenity-ui"]:hideContextMenu()
-  cb({ data = {}, meta = { ok = true, message = '' } })
-end)
-
-function enabledRentSelling()
-  if rentEnabled then
-    Citizen.SetTimeout(30000, function()
-      rentEnabled = false
+RegisterNetEvent('account:information:sv')
+AddEventHandler('account:information:sv', function(cid)
+    local src = source
+    local licenceTable = {}
+    exports.ghmattimysql:execute("SELECT type, status FROM user_licenses WHERE owner = @owner",{['owner'] = cid}, function(result)
+        for i=1, #result do
+            table.insert(licenceTable,{
+                type = result[i].type,
+                status = result[i].status,
+            })
+        end        
     end)
-  end
+
+    exports.ghmattimysql:execute("SELECT `paycheck` FROM characters WHERE id = @id",{['id'] = cid}, function(data)
+        payslips = data[1].paycheck
+    end)
+    -- exports.ghmattimysql:execute("SELECT `casino` FROM characters WHERE id = @id",{['id'] = cid}, function(data)
+    --     pChips = data[1].casino
+    -- end)
+    exports.ghmattimysql:execute("SELECT `phone_number` FROM characters WHERE id = @id",{['id'] = cid}, function(data)
+        pNumber = data[1].phone_number
+    end)
+    
+    Citizen.Wait(100)
+    TriggerClientEvent('account:information:cl', src, licenceTable, payslips, pNumber)
+end)
+
+RegisterServerEvent('server:currentpasses')
+AddEventHandler('server:currentpasses', function()
+  local src = source
+  local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local ply = user:getCurrentCharacter()
+  exports.ghmattimysql:execute("SELECT * FROM character_passes WHERE cid = @cid", {['cid'] = ply.id}, function(result)
+      if result[1] ~= nil then
+          TriggerClientEvent("client:passes", src, result)
+          if result[1].pass_type == "police" or result[1].pass_type == "ems" then
+          else
+              TriggerClientEvent("serenity-jobmanager:playerBecameJob", src, result[1].pass_type, result[1].pass_type, false)
+          end
+      end
+  end)
+end)
+
+RegisterServerEvent('server:givepass')
+AddEventHandler('server:givepass', function(pass_type, rank, cid)
+  local src = source
+  local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local ply = user:getCurrentCharacter()
+  local SrcName = ply.first_name .. " " ..ply.last_name
+--   print("SHIT",pass_type, rank, cid)
+  exports.ghmattimysql:execute("SELECT * FROM character_passes WHERE pass_type = ? AND cid = ?", {pass_type, cid}, function(data)
+      if not data[1] then
+          exports.ghmattimysql:execute("SELECT * FROM characters WHERE id = ?", {cid}, function(name)
+              if name[1] then
+                
+                  local name = name[1].first_name.. ' ' ..name[1].last_name
+                  exports.ghmattimysql:execute('INSERT INTO character_passes (cid, rank, name, giver, pass_type, business_name) VALUES (@cid, @rank, @name, @giver, @pass_type, @business_name)', {
+                      ['cid'] = cid,
+                      ['rank'] = rank,
+                      ['name'] = name,
+                      ['giver'] = SrcName,
+                      ['pass_type'] = pass_type,
+                      ['business_name'] = pass_type
+                  })
+                  exports.ghmattimysql:execute("SELECT * FROM characters WHERE id = ?", {cid}, function(data2)
+                      if data2[1] then
+                          local pSteam = data2[1].owner
+                          exports.ghmattimysql:execute('INSERT INTO jobs_whitelist (owner, cid, job, rank) VALUES (@owner, @cid, @job, @rank)', {
+                              ['owner'] = pSteam,
+                              ['cid'] = cid,
+                              ['job'] = pass_type,
+                              ['rank'] = rank
+                          })
+
+                      end
+                  end)
+                  TriggerClientEvent("notification", src, "You hired " ..name.. " !")
+                  TriggerClientEvent("Passes:RequestUpdate", -1, cid)
+              else
+                  TriggerClientEvent("notification", src, "CID does not exist!")
+              end
+          end)
+      else
+          exports.ghmattimysql:execute("UPDATE character_passes SET `rank` = ? WHERE cid = ? AND pass_type = ?", {rank, cid, pass_type})
+          TriggerClientEvent("notification", src, "You have updated their rank!")
+          TriggerClientEvent("Passes:RequestUpdate", -1, cid)
+      end
+  end)
+end)
+
+
+RegisterServerEvent('server:givepayGroup')
+AddEventHandler('server:givepayGroup', function(groupname, amount, cid)
+  local src = source
+  exports.ghmattimysql:execute("SELECT * FROM group_banking WHERE group_type = @id", {['id'] = groupname}, function(data)
+      if data[1].bank >= tonumber(amount) then
+          exports.ghmattimysql:execute("SELECT paycheck FROM characters WHERE id = @id", {['id'] = cid}, function(result)
+              exports.ghmattimysql:execute("UPDATE characters SET `paycheck` = @paycheck WHERE id = @id", { ['id'] = cid, ['paycheck'] = result[1].paycheck + tonumber(amount)})
+              TriggerClientEvent("Yougotpaid", -1, cid)
+              exports.ghmattimysql:execute("UPDATE group_banking SET `bank` = @bank WHERE group_type = @group_type", { ['group_type'] = groupname, ['bank'] = data[1].bank - tonumber(amount)})
+          end)
+      else
+      TriggerClientEvent('notification', src, 'You do not have enough money in your account to perform this transaction', 2)
+      end
+  end)
+end)
+
+-- RegisterServerEvent('server:gankGroup')
+-- AddEventHandler('server:gankGroup', function(groupid, amount)
+--   local src = source
+--   local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+--   if btnTaskGroups >= tonumber(amount) then
+--       user:removeMoney(tonumber(amount))
+--       exports.ghmattimysql:execute("SELECT * FROM group_banking WHERE group_type = @id", {['id'] = groupid}, function(result)
+--           exports.ghmattimysql:execute("UPDATE group_banking SET `bank` = @bank WHERE `group_type` = @id", { ['id'] = groupid, ['bank'] = result[1].bank + amount})
+--       end)
+--   end
+-- end)
+
+RegisterServerEvent("get:vehicle:coords")
+AddEventHandler("get:vehicle:coords", function(plate)
+  local src = source
+  local vehPlate = plate
+  exports.ghmattimysql:execute("SELECT `coords` FROM characters_cars WHERE license_plate = @license_plate", {['license_plate'] = plate}, function(result)
+      if result[1] then
+          TriggerClientEvent("pass:coords:vehicle", src,vehPlate, json.decode(result[1].coords))
+      end
+  end)
+end)
+
+RegisterServerEvent("vehicle:coords")
+AddEventHandler("vehicle:coords", function(plate, coords)
+  local updatecoords = json.encode(coords)
+  exports.ghmattimysql:execute("UPDATE characters_cars SET `coords` = @coords WHERE `license_plate` = @license_plate", { ['license_plate'] = plate, ['coords'] = updatecoords})
+end)
+
+RegisterServerEvent("car:Outstanding")
+AddEventHandler("car:Outstanding", function()
+  local src = source
+  exports.ghmattimysql:execute("SELECT * FROM characters_cars WHERE finance_time = ? AND payments_left >= ? AND repoed = ?", {
+      "0",
+      "1", 
+      "0"
+    }, function(result)
+      local FinalResult = {}
+      for _, v in pairs(result) do
+          local vname = v.name
+          local plate = v.license_plate
+          local finance = v.financed
+          local payments = v.payments_left
+          owner = v.cid
+          exports.ghmattimysql:execute('SELECT * FROM characters WHERE `id`= ?', {owner}, function(data)
+              for _, d in pairs(data) do
+                  phonenum = d.phone_number
+                  local name = d.first_name .. ' ' .. d.last_name
+                  local string = {
+                      Plate = ('Vehicle: %s (%s)'):format(vname, plate),
+                      AmountDue = ('Amount Due: $%s'):format(math.floor(finance/payments)),
+                      cid = ('CID: %s'):format(owner),
+                      Info = ('%s | %s'):format(phonenum, name)
+                  }
+                  
+                  table.insert(FinalResult, string)
+                  TriggerClientEvent("phone:listunpaid", src, FinalResult)
+              end
+          end) 
+      end
+  end)
+end)
+
+RegisterServerEvent("phone:saveWallpaper")
+AddEventHandler("phone:saveWallpaper", function(cid, wall)
+    exports.ghmattimysql:execute("UPDATE characters SET `wallpaper` = @wallpaper WHERE `id` = @cid", { ['cid'] = cid, ['wallpaper'] = wall})
+end)
+
+RegisterServerEvent("serenity-phone:grabWallpaper")
+AddEventHandler("serenity-phone:grabWallpaper", function()
+    -- print("GRABING WALLPAPER")
+  local src = source
+  local player = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  local char = player:getCurrentCharacter()
+  local cid = char.id
+    exports.ghmattimysql:execute("SELECT `wallpaper` FROM characters WHERE id = @id",{['id'] = cid}, function(data)
+      if data[1].wallpaper ~= nil then
+          TriggerClientEvent('serenity-phone:grabBackground', src, data[1].wallpaper)
+        --   print('Grabbbing',data[1].wallpaper)
+      else
+          TriggerClientEvent('serenity-phone:grabBackground', src, "https://i.imgur.com/JVPavDg.jpg")
+        --   print('Not Grabbbing')
+      end
+    end)
+end)
+
+RegisterServerEvent("serenity-phone:GiveCrypto")
+AddEventHandler("serenity-phone:GiveCrypto", function(type,amount)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    if type == 1 then
+        local mySyndite = getSynditeAmount(id)
+        TriggerClientEvent("chatMessage", src, "EMAIL", 8,  "You have recieved " .. amount .. " Syndite")
+        exports.ghmattimysql:execute("UPDATE characters SET syndite = @syndite WHERE id = @id", {["syndite"] = mySyndite+amount ,['id'] = id})
+    elseif type == 2 then
+        local myTGB = getTgbAmount(id)
+        TriggerClientEvent("chatMessage", src, "EMAIL", 8,  "You have recieved " .. amount .. " TGB")
+        exports.ghmattimysql:execute("UPDATE characters SET tgb = @tgb WHERE id = @id", {["tgb"] = myTGB+amount ,['id'] = id})
+    elseif type == 3 then
+        local myDvd = getDvdAmount(id)
+        TriggerClientEvent("chatMessage", src, "EMAIL", 8,  "You have recieved " .. amount .. " TGB")
+        exports.ghmattimysql:execute("UPDATE characters SET dvd = @dvd WHERE id = @id", {["dvd"] = myDvd+amount ,['id'] = id})
+    end
+end)
+
+RPC.register("phone:getMyBG", function(pSource)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+
+    exports.ghmattimysql:execute("SELECT `wallpaper` FROM characters WHERE id = @id",{['id'] = id}, function(data)
+        background = data[1].wallpaper
+    end)
+    Wait(100)
+    return background
+end)
+
+--RPC.register("serenity-phone:getChips", function(pSource)
+  --  local src = source
+  --  local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+  --  local char = user:getVar("character")
+  --  local id = char.id
+
+  --  exports.ghmattimysql:execute("SELECT `chips` FROM characters WHERE id = @id",{['id'] = id}, function(data)
+ --       chips = data[1].chips
+  --  end)
+  --  Wait(100)
+  --  return chips
+--end)
+
+RPC.register("serenity-phone:getGroupSanitation", function(pSource)
+    local src = source
+    local datas
+    local members
+    exports.ghmattimysql:execute("SELECT * FROM job_groups WHERE job = @job",{['job'] = 'garbage'}, function(data)
+        datas = data
+    end)
+    exports.ghmattimysql:execute("SELECT * FROM job_groups WHERE job = @job AND leader = @leader",{['job'] = 'garbage', ['leader'] = 0}, function(member)
+        members = member
+    end)
+    Wait(300)
+    return datas,members
+end)
+
+RPC.register("serenity-phone:twitterhandle", function(pSource)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+
+    exports.ghmattimysql:execute('SELECT * FROM characters WHERE id = @id', {['id'] = id}, function(result)
+        twitterhandle = result[1].twitterhandle
+    end)
+    
+    return twitterhandle
+end)
+
+RPC.register("serenity-phone:incomingCrypto", function(pSource)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    
+    return serverstockvalues
+end)
+
+local BPid = math.random(1,6)
+RPC.register("serenity-phone:blueprintid", function(pSource)
+    return BPid
+end)
+
+RPC.register("serenity-phone:exchangeCrypto", function(pSource,type,amount)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    local mySyndite = getSynditeAmount(id)
+    local myTgb = getTgbAmount(id)
+    local myDvd = getDvdAmount(id)
+    local amount = amount.param
+    if type.param == 1 then
+        if tonumber(mySyndite) >= tonumber(amount) then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You exchanged " .. amount .. " Syndite")
+            serverstockvalues[1]["amountavailable"] = serverstockvalues[1]["amountavailable"] + amount
+            exports.ghmattimysql:execute("UPDATE characters SET syndite = @syndite WHERE id = @id", {["syndite"] = mySyndite-amount ,['id'] = id})
+            user:addBank(amount * 100)
+        else
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "Transaction failed. There isnt enough in your bank")
+        end
+    elseif type.param == 2 then
+        if tonumber(myTgb) >= tonumber(amount) then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You exchanged " .. amount .. " TGB")
+            serverstockvalues[2]["amountavailable"] = serverstockvalues[2]["amountavailable"] + amount
+            exports.ghmattimysql:execute("UPDATE characters SET tgb = @tgb WHERE id = @id", {["tgb"] = myTgb-amount ,['id'] = id})
+            user:addBank(amount * 50)
+            return true
+        else
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "Transaction failed. There isnt enough in your bank")
+        end
+    elseif type.param == 3 then
+        if tonumber(myDvd) >= tonumber(amount) then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You exchanged " .. amount .. " Davadam Prime")
+            serverstockvalues[3]["amountavailable"] = serverstockvalues[3]["amountavailable"] + amount
+            exports.ghmattimysql:execute("UPDATE characters SET dvd = @dvd WHERE id = @id", {["dvd"] = myDvd-amount ,['id'] = id})
+            user:addBank(amount * 1000)
+            return true
+        else
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "Transaction failed. There isnt enough in your bank")
+        end
+    end
+end)
+
+RPC.register("serenity-phone:transferCrypto", function(pSource,type,amount,target)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    local mySyndite = getSynditeAmount(id)
+    local myTgb = getTgbAmount(id)
+    local myDvd = getDvdAmount(id)
+    local amount = amount.param
+    local target = target.param
+    local targetSyndite = getSynditeAmount(target)
+    local targetTgb = getTgbAmount(target)
+    local targetDvd = getDvdAmount(target)
+    if type.param == 1 then
+        if tonumber(mySyndite) >= tonumber(amount) then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You transfered " .. amount .. " Syndite")
+            exports.ghmattimysql:execute("UPDATE characters SET syndite = @syndite WHERE id = @id", {["syndite"] = mySyndite-amount ,['id'] = id})
+            exports.ghmattimysql:execute("UPDATE characters SET syndite = @syndite WHERE id = @id", {["syndite"] = targetSyndite+amount ,['id'] = target})
+        else
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "Transaction failed. There isnt enough in your bank")
+        end
+    elseif type.param == 2 then
+        if tonumber(myTgb) >= tonumber(amount) then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You transfered " .. amount .. " TGB")
+            exports.ghmattimysql:execute("UPDATE characters SET tgb = @tgb WHERE id = @id", {["tgb"] = myTgb-amount ,['id'] = id})
+            exports.ghmattimysql:execute("UPDATE characters SET tgb = @tgb WHERE id = @id", {["tgb"] = targetTgb+amount ,['id'] = target})
+        else
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "Transaction failed. There isnt enough in your bank")
+        end
+    elseif type.param == 3 then
+        if tonumber(myDvd) >= tonumber(amount) then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You transfered " .. amount .. " TGB")
+            exports.ghmattimysql:execute("UPDATE characters SET dvd = @dvd WHERE id = @id", {["dvd"] = myDvd-amount ,['id'] = id})
+            exports.ghmattimysql:execute("UPDATE characters SET dvd = @dvd WHERE id = @id", {["dvd"] = targetDvd+amount ,['id'] = target})
+        else
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "Transaction failed. There isnt enough in your bank")
+        end
+    end
+end)
+
+RPC.register("serenity-phone:GetSyndite", function (pSource)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    local syndite = getSynditeAmount(id)
+    return syndite
+end)
+
+RPC.register("serenity-phone:GetTgb", function (pSource)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    local tgb = getTgbAmount(id)
+    return tgb
+end)
+
+RPC.register("serenity-phone:GetDvd", function (pSource)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    local dvd = getDvdAmount(id)
+    return dvd
+end)
+
+RPC.register("serenity-phone:buyCrypto", function (pSource,type,amount)
+    local src = source
+    local amount = amount.param
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getVar("character")
+    local id = char.id
+    local mySyndite = getSynditeAmount(id)
+    local myTgb = getTgbAmount(id)
+    local myDvd = getDvdAmount(id)
+    local banko = myBank(id)
+    if type.param == 1 then
+        local price = (amount*100)
+        if banko < price then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You do not have the funds to recieve " .. amount .. " Syndite")
+            return false
+        else
+            user:removeBank(price)
+            exports.ghmattimysql:execute("UPDATE characters SET syndite = @syndite WHERE id = @id", {["syndite"] = mySyndite+amount ,['id'] = id})
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You have recieved " .. amount .. " Syndite")
+            return true
+        end
+    elseif type.param == 2 then
+        local price = (amount*50)
+        if banko < price then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You do not have the funds to recieve " .. amount .. " TGB")
+            return false
+        else
+            user:removeBank(price)
+            exports.ghmattimysql:execute("UPDATE characters SET tgb = @tgb WHERE id = @id", {["tgb"] = myTgb+amount ,['id'] = id})
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You have recieved " .. amount .. " TGB")
+            return true
+        end
+    elseif type.param == 3 then
+        local price = (amount*1000)
+        if banko < price then
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You do not have the funds to recieve " .. amount .. " Davadam Prime")
+            return false
+        else
+            user:removeBank(price)
+            exports.ghmattimysql:execute("UPDATE characters SET dvd = @dvd WHERE id = @id", {["dvd"] = myDvd+amount ,['id'] = id})
+            TriggerClientEvent("chatMessage", src, "Bank", 8,  "You have recieved " .. amount .. " Davadam Prime")
+            return true
+        end
+    end
+end)
+
+RPC.register("serenity-phone:purchaseDarkMarket", function (pSource,type,price)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local char = user:getCurrentCharacter()
+    local id = char.id
+    local price = price.param
+    local mySyndite = getSynditeAmount(id)
+    local myTgb = getTgbAmount(id)
+    local myDvd = getDvdAmount(id)
+    if type.param == 1 then
+        if mySyndite < price then
+            return false
+        else
+            exports.ghmattimysql:execute("UPDATE characters SET syndite = @syndite WHERE id = @id", {["syndite"] = mySyndite-price ,['id'] = id})
+            return true
+        end
+    elseif type.param == 2 then
+        if myTgb < price then
+            return false
+        else
+            exports.ghmattimysql:execute("UPDATE characters SET tgb = @tgb WHERE id = @id", {["tgb"] = myTgb-price ,['id'] = id})
+            return true
+        end
+    elseif type.param == 3 then
+        if myDvd < price then
+            return false
+        else
+            exports.ghmattimysql:execute("UPDATE characters SET dvd = @dvd WHERE id = @id", {["dvd"] = myDvd-price ,['id'] = id})
+            return true
+        end
+    end
+end)
+
+function getSynditeAmount(id)
+    exports.ghmattimysql:execute('SELECT * FROM characters WHERE id = @id', {['id'] = id}, function(result)
+        syndite = result[1].syndite
+    end)
+    Wait(100)
+    
+    return syndite
 end
+
+function getTgbAmount(id)
+    exports.ghmattimysql:execute('SELECT * FROM characters WHERE id = @id', {['id'] = id}, function(result)
+        tgb = result[1].tgb
+    end)
+    Wait(100)
+    
+    return tgb
+end
+
+function getDvdAmount(id)
+    exports.ghmattimysql:execute('SELECT * FROM characters WHERE id = @id', {['id'] = id}, function(result)
+        dvd = result[1].dvd
+    end)
+    Wait(100)
+    
+    return dvd
+end
+
+function myBank(id)
+    exports.ghmattimysql:execute('SELECT * FROM characters WHERE id = @id', {['id'] = id}, function(result)
+        banko = result[1].bank
+    end)
+    Wait(100)
+    return banko
+end
+
+------TEBEX-----
+RPC.register("tebex-supporter:tier", function (pSource)
+    local src = source
+    local steamIdentifier = GetPlayerIdentifiers(src)[1]
+    -- print(steamIdentifier)
+    exports.ghmattimysql:execute('SELECT * FROM tebex_supporters WHERE steamid = @steamid', {['steamid'] = steamIdentifier}, function(result)
+        if not result[1] then
+            amountOut = 10
+        else
+            if result.tier == 1 then
+                amountOut = 15
+            elseif result.tier == 2 then
+                amountOut = 25
+            else
+                amountOut = 35
+            end
+        end
+    end)
+    Wait(100)
+    return amountOut
+end)
+
+RPC.register('serenity-phone:getMyGroup', function(cid)
+    exports.ghmattimysql:execute('SELECT * FROM job_groups WHERE cid = @cid', {['cid'] = cid}, function(result)
+        if result[1] then
+            crew = result[1].crew_name
+        end
+    end)
+    Wait(100)
+    return crew
+end)
+
+RPC.register('serenity-phone:getHouses', function(src)
+    exports.ghmattimysql:execute('SELECT * FROM housing', {}, function(result)
+        if result[1] then
+            house = result[1]
+        end
+    end)
+    Wait(100)
+    return house
+end)
+
+
+RPC.register('serenity-phone:apt', function(source)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local cid = user:getCurrentCharacter().id
+
+    exports.ghmattimysql:execute('SELECT * FROM character_motel WHERE cid = @cid', {['cid'] = cid}, function(result)
+        if result[1] then
+            apt = result[1]
+        end
+    end)
+    Wait(100)
+    return apt
+end)
+
+RPC.register('serenity-phone:getCurrentOwned', function(source)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local cid = user:getCurrentCharacter().id
+    local house
+    exports.ghmattimysql:execute('SELECT * FROM housing WHERE cid = @cid', {['cid'] = cid}, function(result)
+        if result ~= nil then
+            house = {}
+            for i,k in pairs(result) do
+                table.insert(house, {
+                    ['hid'] = k.hid,
+                    ['cid'] = cid,
+                    ['category'] = "",
+                    ['status'] = k.status
+                })
+            end
+            return
+        end
+        house = false
+    end)
+    Wait(100)
+    return house
+end)
+
+RegisterNetEvent('serenity-phone:house:status')
+AddEventHandler('serenity-phone:house:status', function(hid,status)
+    local src = source
+    exports.ghmattimysql:execute('UPDATE housing SET status = @status WHERE hid = @hid',{
+        ['status'] = status,
+        ['hid'] = hid
+    }, function()
+    end)
+end)
+
+RPC.register('serenity-phone:getHousePrice', function(source,hid)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local hIds = hid.param
+    exports.ghmattimysql:execute('SELECT * FROM housing_price WHERE hid = @hid', {['hid'] = hIds}, function(result)
+        if result[1] then
+            hPrice = result[1].price
+            local amount = (hPrice*0.5)
+            TriggerClientEvent('DoLongHudText', src, "You received $"..amount.." for selling property.")
+            user:addMoney(amount)
+            deleteProperty(src,hIds)
+        end
+    end)
+    Wait(100)
+    return hPrice
+end)
+
+function deleteProperty(src,hid)
+    exports.ghmattimysql:execute('DELETE FROM housing WHERE hid = @hid LIMIT 1', {
+        ['hid'] = hid,
+    }, function (result)
+        TriggerClientEvent('updateHousing', src)
+    end)
+end
+
+RPC.register('serenity-phone:GiveAccess', function(source,hid,cid)
+    local src = source
+    local hIds = hid.param
+    local cid = cid.param
+    local access
+    exports.ghmattimysql:execute('SELECT * FROM housing_keys WHERE hid = @hid AND cid = @cid', {['hid'] = hIds, ['cid'] = cid}, function(result)
+        if result[1] then
+            access = false
+        else
+            exports.ghmattimysql:execute('INSERT INTO housing_keys (hid, cid) VALUES (@hid, @cid)', {
+                ['hid'] = hIds,
+                ['cid'] = cid,
+              }, 
+              function(key)
+              if key[1] then
+                
+              end
+            end)
+            access = true
+        end
+    end)
+    Wait(200)
+    return access
+end)
+
+-- RPC.register('serenity-phone:getAccessHouse', function(source)
+--     local src = source
+--     local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+--     local cid = user:getCurrentCharacter().id
+--     local house
+--     exports.ghmattimysql:execute('SELECT * FROM housing_keys WHERE cid = @cid', {['cid'] = cid}, function(result)
+--         if result ~= nil then
+--             house = {}
+--             for i,k in pairs(result) do
+--                 print("MESSAGE",k.hid)
+--                 -- local msg = json.decode(k.message)
+--                 -- print(msg.text,msg.attachment)
+--                 -- table.insert(house, {
+--                 --     ['hid'] = k.hid,
+--                 --     ['cid'] = cid,
+--                 --     ['category'] = "",
+--                 --     ['status'] = k.status
+--                 -- })
+--             end
+--             return
+--         end
+--         house = false
+--     end)
+-- end)
+
+RPC.register('serenity-phone:getAccessHouse', function(source,house)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local cid = user:getCurrentCharacter().id
+    local hid = house.param
+    local person
+
+    local q = [[ SELECT k.hid as house_id, k.cid AS player_cid, CONCAT(c.first_name," ",c.last_name) as player_name
+    FROM housing_keys k
+    INNER JOIN characters c ON c.id = k.cid
+    WHERE k.hid = @hid ]]
+    local v = {["hid"] = hid}
+    exports.ghmattimysql:execute(q, v, function(results)
+        person = {}
+        for i,k in pairs(results) do
+            table.insert(person, {
+                ['name'] = k.player_name,
+                ['cid'] = k.player_cid,
+                ['house'] = k.house_id
+            })
+        end
+    end)
+    Wait(100)
+
+    return person
+end)
+
+RPC.register('serenity-phone:getAccessHouse_2', function(source,house)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local cid = user:getCurrentCharacter().id
+    local hid = house.param
+    local person
+
+    local q = [[ SELECT k.hid as house_id, k.cid AS player_cid, c.status AS house_status
+    FROM housing_keys k
+    INNER JOIN housing c ON c.hid = k.hid
+    WHERE k.cid = @cid ]]
+    local v = {["cid"] = cid}
+    exports.ghmattimysql:execute(q, v, function(results)
+        person = {}
+        for i,k in pairs(results) do
+            table.insert(person, {
+                -- ['name'] = k.player_name,
+                ['cid'] = k.player_cid,
+                ['house'] = k.house_id,
+                ['status'] = k.house_status
+            })
+        end
+    end)
+    Wait(100)
+    return person
+end)
+
+RPC.register("serenity-phone:removeKeys", function(src, pHouseId, pPlayerId)
+    local src = source
+    local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+    local cider = user:getCurrentCharacter().id
+    local cid = pPlayerId.param
+    local hid = pHouseId.param
+
+   if tonumber(cider) ~= tonumber(cid) then
+    -- local removeKey = MySQL.query.await([[
+    --     DELETE FROM housing_keys WHERE hid = ? AND cid = ?
+    -- ]],{
+    --     hid, cid
+    -- })
+    exports.ghmattimysql:execute('DELETE FROM housing_keys WHERE hid = @hid AND cid = @cid', {
+        ['hid'] = hid,
+        ['cid'] = cid,
+      },function(results)
+        TriggerClientEvent('DoLongHudText', src, "You successfully removed key!",1)
+            if results[1] then
+                TriggerClientEvent('DoLongHudText', src, "You successfully removed key!",1)
+            end
+        end)
+    return
+   end
+   TriggerClientEvent('DoLongHudText', src, "You can't removed yourself in your house idiot!",2)
+--    end
+   return true
+end)
+
+
+RPC.register('phone:attempt:sv', function(source, data)
+    local src = source
+    local plate = data.param
+
+    local car = MySQL.query.await([[
+        SELECT * FROM characters_cars
+        WHERE license_plate = ?
+    ]],
+    { plate })
+    local coords = json.decode(car[1].coords)
+    return car[1], coords
+end)
+
+-- RPC.register("serenity-garages:states",function(pSource,state,plate,curGarage,fuel)
+--     local src = source
+--     local user = exports["serenity-core"]:getModule("Player"):GetUser(src)
+--     local char = user:getCurrentCharacter()
+--       for k,v in pairs(curGarage) do
+--           garage = v
+--     end
+--   	if curGarage.param == "Police Department" then
+--         exports.ghmattimysql:execute('SELECT * FROM characters_cars WHERE license_plate = @plate', { ['@plate'] = plate.param }, function(pIsValid)
+-- 			if pIsValid[1] then
+-- 				pExist = true
+-- 				exports.ghmattimysql:execute("UPDATE characters_cars SET vehicle_state = @state, current_garage = @garage, fuel = @fuel, job = @job WHERE license_plate = @plate",  {['garage'] = curGarage.param, ['state'] = state.param, ['fuel'] = fuel.param, ['plate'] = plate.param,['job']='police'})
+-- 			else
+-- 				pExist = false
+-- 			end
+-- 		end)
+--     else
+--         exports.ghmattimysql:execute('SELECT * FROM characters_cars WHERE license_plate = @plate', { ['@plate'] = plate.param }, function(pIsValid)
+-- 			if pIsValid[1] then
+-- 				pExist = true
+-- 				exports.ghmattimysql:execute("UPDATE characters_cars SET vehicle_state = @state, current_garage = @garage, fuel = @fuel, job = @job WHERE license_plate = @plate",  {['garage'] = curGarage.param, ['state'] = state.param, ['fuel'] = fuel.param, ['plate'] = plate.param,['job']='(NULL)'})
+--         	else
+-- 				pExist = false
+-- 			end
+-- 		end)
+--     end
+--     Citizen.Wait(100)
+-- 	return pExist
+-- end)
+
+-- RPC.register("serenity-phone:Groups", function(source,gIp)
+--     local src = source
+--   exports.ghmattimysql:execute("SELECT * FROM character_passes WHERE pass_type = @groupid and rank > 0 ORDER BY rank DESC", {['groupid'] = groupid}, function(results)
+--       if results ~= nil then
+--           exports.ghmattimysql:execute("SELECT bank FROM group_banking WHERE group_type = @groupid", {['groupid'] = groupid}, function(result)
+--               local bank = 0
+--               if result[1] ~= nil then
+--                   bank = result[1].bank
+--               end
+--               TriggerClientEvent("group:fullList", src, results, bank, groupid)
+--           end)
+--       else
+--           TriggerClientEvent("phone:error", src)
+--       end
+--   end)
+-- end)
+
+RegisterNetEvent('setEyeColor')
+AddEventHandler('setEyeColor', function(color)
+    local src = source
+    TriggerClientEvent('setEyeColor', src,color)
+end)
